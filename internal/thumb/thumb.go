@@ -97,7 +97,7 @@ func (m *Manager) GetThumbnail(relPath string) (string, error) {
 	}
 
 	category, _, ext := util.DetectCategory(fi.Name(), fi.IsDir())
-	tmpPath := cachePath + ".tmp"
+	tmpPath := cachePath + ".tmp.jpg"
 
 	switch category {
 	case util.CatImage:
@@ -210,6 +210,8 @@ func (m *Manager) generateVideoThumb(src, dst string) error {
 		"-vframes", "1",
 		"-vf", "scale=480:-1",
 		"-q:v", "3",
+		"-f", "image2",
+		"-vcodec", "mjpeg",
 		dst,
 	)
 
@@ -222,6 +224,8 @@ func (m *Manager) generateVideoThumb(src, dst string) error {
 			"-vframes", "1",
 			"-vf", "scale=480:-1",
 			"-q:v", "3",
+			"-f", "image2",
+			"-vcodec", "mjpeg",
 			dst,
 		)
 		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {

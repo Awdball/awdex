@@ -94,9 +94,9 @@
                 <!-- Item Icon or mini thumbnail -->
                 <div class="icon-thumb-wrapper">
                   <img 
-                    v-if="item.has_thumb" 
+                    v-if="item.has_thumb && !failedThumbs[item.path]" 
                     :src="item.thumb_url" 
-                    class="mini-thumb" 
+                    class="mini-thumb" @error="failedThumbs[item.path] = true" 
                     loading="lazy" 
                     alt=""
                   />
@@ -196,9 +196,9 @@
         <div class="card-thumb-area">
           <!-- Thumbnail preview or Animated video scrub on hover -->
           <img 
-            v-if="item.has_thumb" 
+            v-if="item.has_thumb && !failedThumbs[item.path]" 
             :src="hoverItem === item && item.scrub_url ? item.scrub_url : (item.thumb_url || '/raw' + item.path)" 
-            class="card-thumb-img" 
+            class="card-thumb-img" @error="failedThumbs[item.path] = true" 
             loading="lazy" 
             alt=""
           />
@@ -310,6 +310,7 @@ const sortField = ref('name')
 const sortAsc = ref(true)
 const selectedItem = ref(null)
 const hoverItem = ref(null)
+const failedThumbs = ref({})
 
 function toggleSort(field) {
   if (sortField.value === field) {

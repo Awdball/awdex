@@ -8,6 +8,19 @@
 
 ---
 
+## 📸 Screenshots
+
+### Details View & Expandable Directory Tree
+![Details View](docs/screenshots/screenshot-details.png)
+
+### Rich Media Grid & Animated Video Previews
+![Grid View](docs/screenshots/screenshot-grid.png)
+
+### Public Share Links & Pluggable Outbound Tunnel Modal
+![Public Share Modal](docs/screenshots/screenshot-share.png)
+
+---
+
 ## ✨ Features
 
 - **🎨 Modern, Mobile-First & Desktop-Ready UI**:
