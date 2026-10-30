@@ -37,3 +37,8 @@ export function getCategoryBadgeColor(category) {
     default: return '#94a3b8'
   }
 }
+
+export function encodePath(path) {
+  if (!path) return ''
+  return path.split('/').map(encodeURIComponent).join('/')
+}

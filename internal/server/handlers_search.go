@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/awdball/awdex/internal/model"
@@ -33,9 +34,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	for _, it := range items {
 		if it.HasThumb {
-			it.ThumbURL = "/api/thumb?path=" + it.Path
+			it.ThumbURL = "/api/thumb?path=" + url.QueryEscape(it.Path)
 			if it.Category == util.CatVideo && s.cfg.EnableVideoScrub && s.thumbs.HasFFmpeg() {
-				it.ScrubURL = "/api/scrub?path=" + it.Path
+				it.ScrubURL = "/api/scrub?path=" + url.QueryEscape(it.Path)
 			}
 		}
 	}

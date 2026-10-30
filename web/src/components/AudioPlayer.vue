@@ -3,7 +3,7 @@
     <!-- Hidden Native Audio Element -->
     <audio 
       ref="audioRef" 
-      :src="'/raw' + track.path" 
+      :src="'/raw' + encodePath(track.path)" 
       @timeupdate="onTimeUpdate"
       @loadedmetadata="onLoadedMetadata"
       @ended="onEnded"
@@ -88,7 +88,7 @@ import {
   Play, Pause, SkipBack, SkipForward, Repeat, Shuffle, 
   Volume2, VolumeX, Music, X 
 } from '@lucide/vue'
-import { formatBytes } from '../utils/formatters.js'
+import { formatBytes, encodePath } from '../utils/formatters.js'
 
 const props = defineProps({
   track: Object

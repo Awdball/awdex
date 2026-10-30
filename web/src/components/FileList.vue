@@ -142,7 +142,7 @@
                 </button>
                 <a 
                   v-if="!item.is_dir" 
-                  :href="'/raw' + item.path + '?download=1'" 
+                  :href="'/raw' + encodePath(item.path) + '?download=1'" 
                   class="action-icon-btn" 
                   title="Download File" 
                   download
@@ -198,7 +198,7 @@
           <!-- Thumbnail preview or Animated video scrub on hover -->
           <img 
             v-if="item.has_thumb && !failedThumbs[item.path]" 
-            :src="hoverItem === item && item.scrub_url ? item.scrub_url : (item.thumb_url || '/raw' + item.path)" 
+            :src="hoverItem === item && item.scrub_url ? item.scrub_url : (item.thumb_url || '/raw' + encodePath(item.path))" 
             class="card-thumb-img" @error="failedThumbs[item.path] = true" 
             loading="lazy" 
             alt=""
@@ -237,7 +237,7 @@
             </button>
             <a 
               v-if="!item.is_dir" 
-              :href="'/raw' + item.path + '?download=1'" 
+              :href="'/raw' + encodePath(item.path) + '?download=1'" 
               class="card-btn" 
               title="Download" 
               download
@@ -285,7 +285,7 @@ import {
   Folder, FolderArchive, FileText, FileCode, FileSpreadsheet, 
   FileImage, FileVideo, FileAudio, File, Archive
 } from '@lucide/vue'
-import { formatBytes, formatDate, getCategoryBadgeColor } from '../utils/formatters.js'
+import { formatBytes, formatDate, getCategoryBadgeColor, encodePath } from '../utils/formatters.js'
 
 const props = defineProps({
   items: {

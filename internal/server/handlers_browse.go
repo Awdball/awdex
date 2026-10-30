@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -82,9 +83,9 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if hasThumb {
-			item.ThumbURL = "/api/thumb?path=" + itemRelPath
+			item.ThumbURL = "/api/thumb?path=" + url.QueryEscape(itemRelPath)
 			if cat == util.CatVideo && s.cfg.EnableVideoScrub && s.thumbs.HasFFmpeg() {
-				item.ScrubURL = "/api/scrub?path=" + itemRelPath
+				item.ScrubURL = "/api/scrub?path=" + url.QueryEscape(itemRelPath)
 			}
 		}
 

@@ -63,7 +63,7 @@
           </template>
 
           <!-- Direct Download -->
-          <a :href="'/raw' + item.path + '?download=1'" class="header-btn" title="Download" download>
+          <a :href="'/raw' + encodePath(item.path) + '?download=1'" class="header-btn" title="Download" download>
             <Download :size="16" />
           </a>
 
@@ -88,7 +88,7 @@
 
           <div class="image-stage" @wheel.prevent="onWheel">
             <img 
-              :src="'/raw' + item.path" 
+              :src="'/raw' + encodePath(item.path)" 
               class="preview-img" 
               :style="{ transform: `scale(${zoom}) rotate(${rotation}deg)` }"
               alt=""
@@ -126,13 +126,13 @@
               <h3 class="audio-title">{{ item.name }}</h3>
               <p class="audio-meta">{{ formatBytes(item.size) }}</p>
             </div>
-            <audio controls autoplay class="audio-native-player" :src="'/raw' + item.path"></audio>
+            <audio controls autoplay class="audio-native-player" :src="'/raw' + encodePath(item.path)"></audio>
           </div>
         </div>
 
         <!-- 4. PDF VIEWER -->
         <div v-else-if="item.extension === '.pdf'" class="pdf-viewer">
-          <iframe :src="'/raw' + item.path" class="pdf-iframe"></iframe>
+          <iframe :src="'/raw' + encodePath(item.path)" class="pdf-iframe"></iframe>
         </div>
 
         <!-- 5. CODE / TEXT VIEWER -->
@@ -179,7 +179,7 @@
             <File :size="64" class="binary-icon" />
             <h3 class="binary-name">{{ item.name }}</h3>
             <p class="binary-desc">{{ formatBytes(item.size) }} • {{ item.mime_type || 'Unknown Type' }}</p>
-            <a :href="'/raw' + item.path + '?download=1'" class="btn btn-primary binary-download-btn" download>
+            <a :href="'/raw' + encodePath(item.path) + '?download=1'" class="btn btn-primary binary-download-btn" download>
               <Download :size="16" />
               <span>Download File</span>
             </a>
@@ -197,7 +197,7 @@ import {
   ChevronLeft, ChevronRight, Copy, Check, WrapText, BookOpen, 
   Music, File, Folder, Sliders 
 } from '@lucide/vue'
-import { formatBytes } from '../../utils/formatters.js'
+import { formatBytes, encodePath } from '../../utils/formatters.js'
 import { inspectArchive } from '../../utils/api.js'
 import hljs from 'highlight.js'
 import { marked } from 'marked'
@@ -255,7 +255,7 @@ const videoSrc = computed(() => {
   if (isTranscoding.value) {
     return '/api/transcode?path=' + encodeURIComponent(props.item.path)
   }
-  return '/raw' + props.item.path
+  return '/raw' + encodePath(props.item.path)
 })
 
 function toggleTranscode() {
@@ -338,7 +338,7 @@ async function loadContent() {
   if (props.item.category === 'code' || props.item.category === 'text') {
     loadingText.value = true
     try {
-      const res = await fetch('/raw' + props.item.path)
+      const res = await fetch('/raw' + encodePath(props.item.path))
       textContent.value = await res.text()
     } catch (err) {
       textContent.value = 'Failed to load file contents: ' + err.message
