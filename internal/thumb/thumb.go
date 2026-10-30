@@ -25,6 +25,7 @@ type Manager struct {
 	hasFFmpeg      bool
 	hasPoppler     bool
 	inFlight       sync.Map
+	sem            chan struct{}
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -39,6 +40,7 @@ func NewManager(cfg *config.Config) *Manager {
 		thumbDir:   thumbDir,
 		hasFFmpeg:  ffmpegErr == nil,
 		hasPoppler: popplerErr == nil,
+		sem:        make(chan struct{}, 2), // max 2 concurrent ffmpeg/media extractions
 	}
 }
 
@@ -95,6 +97,9 @@ func (m *Manager) GetThumbnail(relPath string) (string, error) {
 	if _, err := os.Stat(cachePath); err == nil {
 		return cachePath, nil
 	}
+
+	m.sem <- struct{}{}
+	defer func() { <-m.sem }()
 
 	category, _, ext := util.DetectCategory(fi.Name(), fi.IsDir())
 	tmpPath := cachePath + ".tmp.jpg"
@@ -157,13 +162,20 @@ func (m *Manager) GetVideoScrub(relPath string) (string, error) {
 		return cachePath, nil
 	}
 
+	m.sem <- struct{}{}
+	defer func() { <-m.sem }()
+
 	tmpPath := cachePath + ".tmp.webp"
 	// Extract 2.5 seconds clip starting at 2s, scale to 320px width, 8 fps
 	cmd := exec.Command("ffmpeg",
+		"-hide_banner",
+		"-loglevel", "error",
+		"-threads", "2",
 		"-y",
 		"-ss", "00:00:02",
 		"-t", "2.5",
 		"-i", fullPath,
+		"-an",
 		"-vf", "fps=8,scale=320:-1:flags=lanczos",
 		"-loop", "0",
 		"-quality", "65",
@@ -204,9 +216,13 @@ func (m *Manager) generateVideoThumb(src, dst string) error {
 	}
 
 	cmd := exec.Command("ffmpeg",
+		"-hide_banner",
+		"-loglevel", "error",
+		"-threads", "1",
 		"-y",
 		"-ss", "00:00:02",
 		"-i", src,
+		"-an",
 		"-vframes", "1",
 		"-vf", "scale=480:-1",
 		"-q:v", "3",
@@ -218,9 +234,13 @@ func (m *Manager) generateVideoThumb(src, dst string) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Try at 00:00:00 in case the video is very short
 		cmd2 := exec.Command("ffmpeg",
+			"-hide_banner",
+			"-loglevel", "error",
+			"-threads", "1",
 			"-y",
 			"-ss", "00:00:00",
 			"-i", src,
+			"-an",
 			"-vframes", "1",
 			"-vf", "scale=480:-1",
 			"-q:v", "3",

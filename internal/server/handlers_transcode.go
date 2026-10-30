@@ -68,6 +68,7 @@ func (s *Server) streamFFmpegMP4(w http.ResponseWriter, r *http.Request, fullPat
 	args := []string{
 		"-hide_banner",
 		"-loglevel", "error",
+		"-threads", "2",
 	}
 
 	if ss != "" && ss != "0" {

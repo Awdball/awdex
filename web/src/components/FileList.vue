@@ -36,6 +36,7 @@
     <div 
       v-else-if="viewMode === 'details'" 
       class="details-view" 
+      @scroll.passive="onScroll"
       role="region" 
       aria-label="Directory contents" 
       tabindex="0"
@@ -83,7 +84,7 @@
 
           <!-- Item Rows -->
           <tr 
-            v-for="item in filteredItems" 
+            v-for="item in visibleItems" 
             :key="item.path" 
             class="table-row" 
             :class="{ 'is-selected': selectedItem?.path === item.path }"
@@ -172,7 +173,7 @@
     </div>
 
     <!-- 2. GRID / THUMBNAIL VIEW -->
-    <div v-else-if="viewMode === 'grid'" class="grid-view">
+    <div v-else-if="viewMode === 'grid'" class="grid-view" @scroll.passive="onScroll">
       <!-- Parent directory card -->
       <div v-if="currentPath !== '/'" class="grid-card parent-card" @click="$emit('navigate', parentPath)">
         <div class="card-thumb-area parent-thumb-area">
@@ -185,7 +186,7 @@
 
       <!-- Item cards -->
       <div 
-        v-for="item in filteredItems" 
+        v-for="item in visibleItems" 
         :key="item.path" 
         class="grid-card" 
         :class="{ 'is-selected': selectedItem?.path === item.path }"
@@ -257,14 +258,14 @@
     </div>
 
     <!-- 3. COMPACT ICONS VIEW -->
-    <div v-else class="icons-view">
+    <div v-else class="icons-view" @scroll.passive="onScroll">
       <div v-if="currentPath !== '/'" class="icon-item parent-item" @click="$emit('navigate', parentPath)">
         <CornerLeftUp :size="24" class="parent-icon" />
         <span class="icon-label">..</span>
       </div>
 
       <div 
-        v-for="item in filteredItems" 
+        v-for="item in visibleItems" 
         :key="item.path" 
         class="icon-item" 
         :class="{ 'is-selected': selectedItem?.path === item.path }"
@@ -278,7 +279,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { 
   Filter, CornerLeftUp, Download, Eye, Trash2, Play, Music, Share2,
   Folder, FolderArchive, FileText, FileCode, FileSpreadsheet, 
@@ -336,18 +337,41 @@ const filteredItems = computed(() => {
 
     let cmp = 0
     if (sortField.value === 'name') {
-      cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+      const an = a.name.toLowerCase()
+      const bn = b.name.toLowerCase()
+      cmp = an < bn ? -1 : (an > bn ? 1 : 0)
     } else if (sortField.value === 'size') {
       cmp = (a.size || 0) - (b.size || 0)
     } else if (sortField.value === 'date') {
       cmp = new Date(a.mod_time) - new Date(b.mod_time)
     } else if (sortField.value === 'type') {
-      cmp = (a.category || '').localeCompare(b.category || '')
+      const at = a.category || ''
+      const bt = b.category || ''
+      cmp = at < bt ? -1 : (at > bt ? 1 : 0)
     }
 
     return sortAsc.value ? cmp : -cmp
   })
 })
+
+const itemsToShow = ref(100)
+
+watch(() => [props.currentPath, filterQuery.value], () => {
+  itemsToShow.value = 100
+})
+
+const visibleItems = computed(() => {
+  return filteredItems.value.slice(0, itemsToShow.value)
+})
+
+function onScroll(e) {
+  const el = e.target
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) {
+    if (itemsToShow.value < filteredItems.value.length) {
+      itemsToShow.value = Math.min(itemsToShow.value + 100, filteredItems.value.length)
+    }
+  }
+}
 
 function selectItem(item) {
   selectedItem.value = item

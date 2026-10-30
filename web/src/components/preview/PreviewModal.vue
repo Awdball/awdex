@@ -262,10 +262,19 @@ function toggleTranscode() {
   forceTranscode.value = !isTranscoding.value
 }
 
+function isNativeVideoFormat(ext) {
+  const e = (ext || '').toLowerCase()
+  return ['.mp4', '.m4v', '.webm', '.mov', '.ogg', '.ogv'].includes(e)
+}
+
 function onVideoError() {
   if (!isTranscoding.value) {
-    console.log('Direct video playback failed, falling back to FFmpeg transcode')
-    forceTranscode.value = true
+    if (!isNativeVideoFormat(props.item?.extension)) {
+      console.log('Direct video playback failed for non-native video, falling back to FFmpeg transcode')
+      forceTranscode.value = true
+    } else {
+      console.warn('Direct video playback error encountered on native format')
+    }
   }
 }
 

@@ -76,15 +76,6 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 		if isDir {
 			totalDirs++
-			// Count children for folder badge
-			subEntries, _ := os.ReadDir(filepath.Join(fullPath, name))
-			subCount := 0
-			for _, sub := range subEntries {
-				if !strings.HasPrefix(sub.Name(), ".") {
-					subCount++
-				}
-			}
-			item.ItemCount = subCount
 		} else {
 			totalFiles++
 			totalBytes += size
@@ -149,23 +140,23 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		subRelPath := filepath.ToSlash(filepath.Join(relPath, name))
 		subFullPath := filepath.Join(fullPath, name)
 
-		subEntries, _ := os.ReadDir(subFullPath)
-		subDirCount := 0
 		hasChildren := false
-		for _, sub := range subEntries {
-			if !strings.HasPrefix(sub.Name(), ".") {
-				if sub.IsDir() {
-					hasChildren = true
+		if subF, err := os.Open(subFullPath); err == nil {
+			if subEntries, err := subF.ReadDir(20); err == nil {
+				for _, sub := range subEntries {
+					if sub.IsDir() && !strings.HasPrefix(sub.Name(), ".") {
+						hasChildren = true
+						break
+					}
 				}
-				subDirCount++
 			}
+			subF.Close()
 		}
 
 		nodes = append(nodes, &model.TreeNode{
 			Name:        name,
 			Path:        subRelPath,
 			HasChildren: hasChildren,
-			SubCount:    subDirCount,
 		})
 	}
 
