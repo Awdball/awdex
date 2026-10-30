@@ -30,6 +30,10 @@
   - **Code & Text**: Syntax highlighting for 100+ languages (`highlight.js`), word wrap toggle, and one-click copy-to-clipboard.
   - **Markdown**: Formatted GFM HTML view with rendered/raw source toggle.
   - **ZIP Archives**: Inspect internal archive file trees and sizes without extracting or downloading the archive.
+- **🔗 Public Share Links & Pluggable Outbound Tunnels**:
+  - Create expiring, download-limited, or password-protected public share links (`/s/<token>`) for any file or folder (folders stream as on-the-fly `.zip` downloads; legacy videos stream via live FFmpeg transcoding).
+  - **Isolated Share-Only Port (`:8081`)**: Dedicated HTTP listener that *only* serves `/s/<token>` routes—never exposing `/api/*`, `/raw/*`, or the directory browser UI to public tunnels.
+  - **Pluggable Zero-Install Outbound Tunnels**: Built-in support for **Cloudflare Quick Tunnels (`cloudflared`)** (auto-downloaded to `/data/bin/cloudflared`, auto-started on first share, and auto-stopped when all shares expire/revoke), **OpenZiti (`zrok`)**, and **Custom Domain / Tailscale Funnel**.
 - **📤 Streaming Drag-and-Drop Uploads**: Drop files anywhere onto the browser window or use the Upload modal with real-time progress. Can be disabled globally via `-read-only` / `AWDEX_READ_ONLY=true`.
 - **💾 Strict Content & Asset Separation**:
   - Your content directory (`/content`) can be mounted **read-only (`:ro`)**.
@@ -193,6 +197,9 @@ All settings can be configured via environment variables or CLI flags (CLI flags
 | `POST` | `/api/upload?path=<dir>` | Multipart streaming file upload into target directory (disabled in read-only mode). |
 | `POST` | `/api/mkdir` | Creates a new subdirectory (disabled in read-only mode). |
 | `DELETE` | `/api/delete?path=<item>` | Deletes a file or directory and removes its index entry (disabled in read-only mode). |
+| `GET/POST/DELETE` | `/api/shares` | List active public share links, create a new share link (`path`, `expires_in_hours`, `max_downloads`, `password`), or revoke a share (`?id=<token>`). |
+| `POST` | `/api/shares/config` | Configure outbound tunnel provider (`cloudflared`, `zrok`, `custom`, `none`) and control tunnel lifecycle (`start` / `stop`). |
+| `GET/POST` | `/s/<token>` | Isolated public share landing page, password verification, raw/transcoded media preview, and single-file or folder `.zip` download (served on both `:8080` and isolated `:8081`). |
 
 ---
 
