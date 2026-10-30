@@ -378,7 +378,12 @@ function getItemColor(item) {
 .file-list-container {
   padding: 16px 20px;
   width: 100%;
-  min-height: 100%;
+  max-inline-size: 100%;
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   container-type: inline-size;
   container-name: filelist;
 }
@@ -387,14 +392,12 @@ function getItemColor(item) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   gap: 12px;
   flex-wrap: wrap;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex-shrink: 0;
   background-color: var(--bg-app);
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .quick-filter-wrapper {
@@ -485,6 +488,12 @@ function getItemColor(item) {
   outline: none;
   width: 100%;
   max-inline-size: 100%;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .file-table {
@@ -499,7 +508,7 @@ function getItemColor(item) {
 
 thead {
   position: sticky;
-  inset-block-start: 46px;
+  inset-block-start: 0;
   z-index: 5;
 }
 
@@ -511,14 +520,6 @@ th {
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   user-select: none;
-}
-
-th:first-child {
-  border-top-left-radius: var(--radius-md);
-}
-
-th:last-child {
-  border-top-right-radius: var(--radius-md);
 }
 
 th:hover {
@@ -663,6 +664,13 @@ td {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  align-content: start;
+  padding-bottom: 8px;
 }
 
 .grid-card {
@@ -796,6 +804,13 @@ td {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  align-content: start;
+  padding-bottom: 8px;
 }
 
 .icon-item {

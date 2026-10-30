@@ -404,10 +404,7 @@ onUnmounted(() => {
   min-height: 0;
   height: 100%;
   max-height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  overflow: hidden;
   position: relative;
   background-color: var(--bg-app);
 }
