@@ -1,0 +1,25 @@
+services:
+  awdex:
+    image: ghcr.io/awdball/awdex:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: awdex
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - AWDEX_TITLE=awdex
+      - AWDEX_ROOT_DIR=/content
+      - AWDEX_DATA_DIR=/data
+      - AWDEX_PORT=8080
+      - AWDEX_READ_ONLY=false
+      - AWDEX_ENABLE_THUMBNAILS=true
+      - AWDEX_ENABLE_VIDEO_SCRUB=true
+      # Optional external PostgreSQL connection (for high concurrency or NFS cluster):
+      # - AWDEX_DATABASE_URL=postgres://user:password@postgres:5432/awdex?sslmode=disable
+    volumes:
+      # Mount your storage directory here (can be read-only :ro)
+      - ./media:/content:ro
+      # Separate persistent directory for generated thumbnails, cache, and SQLite db
+      - ./data:/data

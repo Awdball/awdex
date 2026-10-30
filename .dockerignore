@@ -1,0 +1,9 @@
+.git
+.github
+.awdex-data
+data/
+node_modules
+web/node_modules
+awdex
+*.log
+*.tmp

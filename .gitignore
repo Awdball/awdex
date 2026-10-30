@@ -1,0 +1,23 @@
+# Compiled binary
+/awdex
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Data and caches
+.awdex-data/
+data/
+media/
+*.db
+*.db-wal
+*.db-shm
+thumbnails/
+
+# Frontend dependencies and builds
+node_modules/
+web/node_modules/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
