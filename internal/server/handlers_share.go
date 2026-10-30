@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -141,7 +140,7 @@ func (s *Server) handleSharesConfigAPI(w http.ResponseWriter, r *http.Request) {
 func needsTranscodeExt(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {
-	case ".wmv", ".avi", ".flv", ".mpg", ".mpeg", ".m2ts", ".ts", ".vob", ".ogv", ".3gp", ".divx":
+	case ".wmv", ".asf", ".avi", ".flv", ".mpg", ".mpeg", ".m2ts", ".mts", ".ts", ".vob", ".ogv", ".3gp", ".divx", ".rm", ".rmvb":
 		return true
 	}
 	return false
@@ -234,19 +233,7 @@ func (s *Server) handlePublicShare(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Cannot transcode", http.StatusBadRequest)
 			return
 		}
-		args := []string{
-			"-hide_banner", "-loglevel", "error",
-			"-i", fullPath,
-			"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", "23", "-pix_fmt", "yuv420p",
-			"-c:a", "aac", "-b:a", "128k", "-ac", "2",
-			"-movflags", "frag_keyframe+empty_moov+default_base_moof",
-			"-f", "mp4", "pipe:1",
-		}
-		cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
-		cmd.Stdout = w
-		w.Header().Set("Content-Type", "video/mp4")
-		w.Header().Set("Cache-Control", "no-cache")
-		_ = cmd.Run()
+		s.streamFFmpegMP4(w, r, fullPath, strings.TrimSpace(r.URL.Query().Get("ss")))
 
 	case strings.HasPrefix(subAction, "file/"):
 		if !fi.IsDir() {
