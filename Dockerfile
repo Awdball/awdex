@@ -5,8 +5,8 @@ FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/web
 
-COPY web/package*.json ./
-RUN npm ci
+COPY web/package.json ./
+RUN npm install --no-audit --no-fund
 
 COPY web/ ./
 RUN npm run build
@@ -14,13 +14,14 @@ RUN npm run build
 # ==========================================
 # Stage 2: Compile Static Go Binary
 # ==========================================
-FROM golang:1.24-alpine AS backend-builder
+FROM alpine:edge AS backend-builder
 
 WORKDIR /app
 
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache go git ca-certificates tzdata
 
 COPY go.mod go.sum ./
+ENV CGO_ENABLED=0 GOTOOLCHAIN=auto
 RUN go mod download
 
 # Copy source code and frontend build output
@@ -30,7 +31,6 @@ COPY web/embed.go web/
 COPY --from=frontend-builder /app/web/dist web/dist
 
 # Build fully static binary
-ENV CGO_ENABLED=0
 RUN go build -ldflags="-s -w -X main.version=1.0.0" -o /app/bin/awdex ./cmd/awdex
 
 # ==========================================
@@ -38,7 +38,7 @@ RUN go build -ldflags="-s -w -X main.version=1.0.0" -o /app/bin/awdex ./cmd/awde
 # ==========================================
 FROM alpine:3.21
 
-# Install runtime utilities for media preview generation
+# Install runtime utilities for media preview & transcoding
 RUN apk add --no-cache \
     ffmpeg \
     poppler-utils \
@@ -49,10 +49,9 @@ WORKDIR /app
 
 COPY --from=backend-builder /app/bin/awdex /app/awdex
 
-ENV AWDEX_ROOT_DIR=/content \
+ENV AWDEX_CONTENT_DIR=/content \
     AWDEX_DATA_DIR=/data \
-    AWDEX_PORT=8080 \
-    AWDEX_HOST=0.0.0.0
+    AWDEX_PORT=8080
 
 # Volume mountpoints
 VOLUME ["/content", "/data"]
