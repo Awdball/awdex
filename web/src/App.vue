@@ -399,6 +399,8 @@ onUnmounted(() => {
 
 .main-content {
   flex: 1;
+  min-inline-size: 0;
+  min-width: 0;
   min-height: 0;
   height: 100%;
   max-height: 100%;

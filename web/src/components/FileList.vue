@@ -66,11 +66,13 @@
           <!-- Parent Directory Row if not in root -->
           <tr v-if="currentPath !== '/'" class="table-row parent-row" @click="$emit('navigate', parentPath)">
             <td class="td-name">
-              <div class="icon-thumb-wrapper">
-                <CornerLeftUp :size="16" class="item-icon parent-icon" />
-              </div>
-              <div class="name-text-stack">
-                <span class="file-name">.. (Parent Directory)</span>
+              <div class="td-name-inner">
+                <div class="icon-thumb-wrapper">
+                  <CornerLeftUp :size="16" class="item-icon parent-icon" />
+                </div>
+                <div class="name-text-stack">
+                  <span class="file-name">.. (Parent Directory)</span>
+                </div>
               </div>
             </td>
             <td class="td-date">-</td>
@@ -88,35 +90,37 @@
             @click="handleItemClick(item)"
           >
             <td class="td-name">
-              <!-- Item Icon or mini thumbnail -->
-              <div class="icon-thumb-wrapper">
-                <img 
-                  v-if="item.has_thumb" 
-                  :src="item.thumb_url" 
-                  class="mini-thumb" 
-                  loading="lazy" 
-                  alt=""
-                />
-                <component 
-                  v-else 
-                  :is="getItemIcon(item)" 
-                  :size="18" 
-                  class="item-icon" 
-                  :style="{ color: getItemColor(item) }" 
-                />
-              </div>
+              <div class="td-name-inner">
+                <!-- Item Icon or mini thumbnail -->
+                <div class="icon-thumb-wrapper">
+                  <img 
+                    v-if="item.has_thumb" 
+                    :src="item.thumb_url" 
+                    class="mini-thumb" 
+                    loading="lazy" 
+                    alt=""
+                  />
+                  <component 
+                    v-else 
+                    :is="getItemIcon(item)" 
+                    :size="18" 
+                    class="item-icon" 
+                    :style="{ color: getItemColor(item) }" 
+                  />
+                </div>
 
-              <div class="name-text-stack">
-                <span class="file-name" :title="item.name">{{ item.name }}</span>
-                <span class="mobile-meta">
-                  <template v-if="item.is_dir">
-                    Folder<template v-if="item.item_count"> • {{ item.item_count }} items</template>
-                    <template v-if="item.mod_time"> • {{ formatDate(item.mod_time) }}</template>
-                  </template>
-                  <template v-else>
-                    {{ formatBytes(item.size) }} • {{ item.extension ? item.extension.slice(1).toUpperCase() : item.category }} • {{ formatDate(item.mod_time) }}
-                  </template>
-                </span>
+                <div class="name-text-stack">
+                  <span class="file-name" :title="item.name">{{ item.name }}</span>
+                  <span class="mobile-meta">
+                    <template v-if="item.is_dir">
+                      Folder<template v-if="item.item_count"> • {{ item.item_count }} items</template>
+                      <template v-if="item.mod_time"> • {{ formatDate(item.mod_time) }}</template>
+                    </template>
+                    <template v-else>
+                      {{ formatBytes(item.size) }} • {{ item.extension ? item.extension.slice(1).toUpperCase() : item.category }} • {{ formatDate(item.mod_time) }}
+                    </template>
+                  </span>
+                </div>
               </div>
             </td>
             <td class="td-date">{{ formatDate(item.mod_time) }}</td>
@@ -479,10 +483,14 @@ function getItemColor(item) {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   outline: none;
+  width: 100%;
+  max-inline-size: 100%;
 }
 
 .file-table {
   width: 100%;
+  max-inline-size: 100%;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
@@ -552,21 +560,32 @@ td {
 
 .td-name {
   color: var(--text-main);
+  font-weight: 500;
+  max-inline-size: 0;
+  overflow: hidden;
+}
+
+.td-name-inner {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 500;
+  min-inline-size: 0;
   min-width: 0;
+  width: 100%;
 }
 
 .name-text-stack {
   display: flex;
   flex-direction: column;
+  min-inline-size: 0;
   min-width: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 .file-name {
+  display: block;
+  max-inline-size: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -831,12 +850,26 @@ td {
     display: none;
   }
 
-  .th-name {
-    width: auto;
+  .th-name,
+  .td-name {
+    width: calc(100% - 68px);
   }
 
-  .th-actions {
-    width: 72px;
+  .th-actions,
+  .td-actions {
+    width: 68px;
+  }
+
+  .file-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-clamp: 2;
+    overflow: clip;
+    line-height: 1.35;
   }
 
   .mobile-meta {
