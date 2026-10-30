@@ -14,6 +14,10 @@ type Config struct {
 	DataDir          string        `json:"data_dir"`
 	Host             string        `json:"host"`
 	Port             int           `json:"port"`
+	SharePort        int           `json:"share_port"`
+	ShareProvider    string        `json:"share_provider"`
+	SharePublicURL   string        `json:"share_public_url"`
+	ZrokToken        string        `json:"-"`
 	DatabaseURL      string        `json:"database_url"`
 	ReadOnly         bool          `json:"read_only"`
 	EnableThumbnails bool          `json:"enable_thumbnails"`
@@ -29,6 +33,10 @@ func LoadConfig() (*Config, error) {
 		DataDir:          getEnv("AWDEX_DATA_DIR", "/data"),
 		Host:             getEnv("AWDEX_HOST", "0.0.0.0"),
 		Port:             getEnvInt("AWDEX_PORT", 8080),
+		SharePort:        getEnvInt("AWDEX_SHARE_PORT", 8081),
+		ShareProvider:    getEnv("AWDEX_SHARE_PROVIDER", "cloudflared"),
+		SharePublicURL:   getEnv("AWDEX_SHARE_PUBLIC_URL", ""),
+		ZrokToken:        getEnv("AWDEX_ZROK_TOKEN", ""),
 		DatabaseURL:      getEnv("AWDEX_DATABASE_URL", ""),
 		ReadOnly:         getEnvBool("AWDEX_READ_ONLY", false),
 		EnableThumbnails: getEnvBool("AWDEX_ENABLE_THUMBNAILS", true),
@@ -43,6 +51,7 @@ func LoadConfig() (*Config, error) {
 	flagDataDir := flag.String("data", "", "Directory to store generated assets, thumbnails, and sqlite db (default: /data or ./data)")
 	flagHost := flag.String("host", "", "Host to listen on")
 	flagPort := flag.Int("port", 0, "Port to listen on")
+	flagSharePort := flag.Int("share-port", 0, "Isolated port for public share links (default: 8081)")
 	flagDbURL := flag.String("db", "", "Database URL (postgres://... or empty for embedded sqlite)")
 	flagReadOnly := flag.Bool("read-only", false, "Disable uploads, modifications, and directory creation")
 	flagTitle := flag.String("title", "", "Site title")
@@ -59,6 +68,9 @@ func LoadConfig() (*Config, error) {
 	}
 	if *flagPort != 0 {
 		cfg.Port = *flagPort
+	}
+	if *flagSharePort != 0 {
+		cfg.SharePort = *flagSharePort
 	}
 	if *flagDbURL != "" {
 		cfg.DatabaseURL = *flagDbURL
@@ -86,6 +98,9 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "thumbnails"), 0755); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "bin"), 0755); err != nil {
 		return nil, err
 	}
 

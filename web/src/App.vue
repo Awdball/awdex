@@ -14,6 +14,7 @@
       @open-upload="showUpload = true"
       @refresh="loadDirectory(currentPath)"
       @toggle-theme="toggleTheme"
+      @open-shares="openShareModal(null)"
       @open-info="showInfo = true"
     />
 
@@ -61,6 +62,7 @@
           @play-audio="playAudio"
           @delete="handleDeleteItem"
           @select="selectedItem = $event"
+          @share="openShareModal"
         />
       </main>
 
@@ -109,6 +111,13 @@
       @select-item="openPreview"
     />
 
+    <!-- Share Modal -->
+    <ShareModal 
+      v-if="showShareModal" 
+      :item="shareTargetItem" 
+      @close="showShareModal = false" 
+    />
+
     <!-- Info Modal -->
     <InfoModal 
       v-if="showInfo" 
@@ -129,6 +138,7 @@ import PreviewModal from './components/preview/PreviewModal.vue'
 import UploadModal from './components/UploadModal.vue'
 import SearchModal from './components/SearchModal.vue'
 import InfoModal from './components/InfoModal.vue'
+import ShareModal from './components/ShareModal.vue'
 import { fetchBrowse, fetchInfo, deleteItem } from './utils/api.js'
 
 // State
@@ -177,6 +187,13 @@ const serverInfo = ref(null)
 const showUpload = ref(false)
 const showSearch = ref(false)
 const showInfo = ref(false)
+const showShareModal = ref(false)
+const shareTargetItem = ref(null)
+
+function openShareModal(item = null) {
+  shareTargetItem.value = item
+  showShareModal.value = true
+}
 
 const isWindowDragging = ref(false)
 let dragCounter = 0

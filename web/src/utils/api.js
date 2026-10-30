@@ -92,3 +92,38 @@ export async function inspectArchive(path) {
   if (!res.ok) throw new Error(await res.text())
   return await res.json()
 }
+
+
+export async function fetchShares() {
+  const res = await fetch(`${API_BASE}/api/shares`)
+  if (!res.ok) throw new Error(await res.text())
+  return await res.json()
+}
+
+export async function createShareLink(payload) {
+  const res = await fetch(`${API_BASE}/api/shares`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return await res.json()
+}
+
+export async function deleteShareLink(id) {
+  const res = await fetch(`${API_BASE}/api/shares?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return await res.json()
+}
+
+export async function updateShareConfig(payload) {
+  const res = await fetch(`${API_BASE}/api/shares/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return await res.json()
+}

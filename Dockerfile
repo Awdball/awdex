@@ -43,19 +43,21 @@ RUN apk add --no-cache \
     ffmpeg \
     poppler-utils \
     ca-certificates \
-    tzdata
+    tzdata \
+    gcompat
 
 WORKDIR /app
 
 COPY --from=backend-builder /app/bin/awdex /app/awdex
 
-ENV AWDEX_CONTENT_DIR=/content \
+ENV AWDEX_ROOT_DIR=/content \
     AWDEX_DATA_DIR=/data \
-    AWDEX_PORT=8080
+    AWDEX_PORT=8080 \
+    AWDEX_SHARE_PORT=8081
 
 # Volume mountpoints
 VOLUME ["/content", "/data"]
 
-EXPOSE 8080
+EXPOSE 8080 8081
 
 ENTRYPOINT ["/app/awdex"]

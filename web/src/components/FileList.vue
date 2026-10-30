@@ -132,6 +132,13 @@
             </td>
             <td class="td-actions" @click.stop>
               <div class="row-actions">
+                <button 
+                  class="action-icon-btn" 
+                  title="Share Public Link" 
+                  @click="$emit('share', item)"
+                >
+                  <Share2 :size="15" />
+                </button>
                 <a 
                   v-if="!item.is_dir" 
                   :href="'/raw' + item.path + '?download=1'" 
@@ -220,6 +227,13 @@
           </div>
 
           <div class="card-actions" @click.stop>
+            <button 
+              class="card-btn" 
+              title="Share Public Link" 
+              @click="$emit('share', item)"
+            >
+              <Share2 :size="14" />
+            </button>
             <a 
               v-if="!item.is_dir" 
               :href="'/raw' + item.path + '?download=1'" 
@@ -266,7 +280,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { 
-  Filter, CornerLeftUp, Download, Eye, Trash2, Play, Music,
+  Filter, CornerLeftUp, Download, Eye, Trash2, Play, Music, Share2,
   Folder, FolderArchive, FileText, FileCode, FileSpreadsheet, 
   FileImage, FileVideo, FileAudio, File, Archive
 } from '@lucide/vue'
@@ -289,7 +303,7 @@ const props = defineProps({
   totalBytes: Number
 })
 
-const emit = defineEmits(['navigate', 'preview', 'play-audio', 'delete', 'select'])
+const emit = defineEmits(['navigate', 'preview', 'play-audio', 'delete', 'select', 'share'])
 
 const filterQuery = ref('')
 const sortField = ref('name')
@@ -867,12 +881,12 @@ td {
 
   .th-name,
   .td-name {
-    width: calc(100% - 68px);
+    width: calc(100% - 92px);
   }
 
   .th-actions,
   .td-actions {
-    width: 68px;
+    width: 92px;
   }
 
   .file-name {

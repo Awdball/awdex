@@ -100,6 +100,14 @@
 
         <button 
           class="icon-btn" 
+          @click="$emit('open-shares')" 
+          title="Share Links & Tunnel Engine"
+        >
+          <Share2 :size="17" />
+        </button>
+
+        <button 
+          class="icon-btn" 
           @click="$emit('open-info')" 
           title="Server Info"
         >
@@ -114,7 +122,7 @@
 import { ref, watch, nextTick } from 'vue'
 import { 
   FolderTree, Sidebar, Search, List, LayoutGrid, Grid, 
-  Upload, RefreshCw, Sun, Moon, Info 
+  Upload, RefreshCw, Sun, Moon, Info, Share2 
 } from '@lucide/vue'
 
 const props = defineProps({
@@ -134,7 +142,7 @@ const props = defineProps({
 
 defineEmits([
   'navigate', 'toggle-sidebar', 'open-search', 'open-upload', 
-  'refresh', 'toggle-theme', 'open-info', 'update:viewMode'
+  'refresh', 'toggle-theme', 'open-info', 'open-shares', 'update:viewMode'
 ])
 
 const breadcrumbsRef = ref(null)
