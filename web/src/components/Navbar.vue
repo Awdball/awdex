@@ -157,13 +157,16 @@ watch(() => props.breadcrumbs, async () => {
 
 <style scoped>
 .navbar {
-  height: 52px;
+  height: calc(52px + env(safe-area-inset-top, 0px));
   background-color: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: calc(16px + env(safe-area-inset-left, 0px));
+  padding-right: calc(16px + env(safe-area-inset-right, 0px));
+  padding-bottom: 0;
   gap: 8px;
   z-index: 20;
 }
@@ -329,7 +332,11 @@ watch(() => props.breadcrumbs, async () => {
 
 @media (max-width: 768px) {
   .navbar {
-    padding: 0 10px;
+    height: calc(52px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+    padding-right: calc(10px + env(safe-area-inset-right, 0px));
+    padding-bottom: 0;
     gap: 4px;
   }
   .navbar-left {

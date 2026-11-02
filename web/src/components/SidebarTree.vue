@@ -97,6 +97,8 @@ watch(() => props.currentPath, (newVal) => {
     margin-left: 0;
     box-shadow: var(--shadow-xl);
     transform: translateX(0);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .sidebar-tree.is-collapsed {

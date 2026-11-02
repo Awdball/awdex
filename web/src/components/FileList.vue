@@ -948,6 +948,7 @@ td {
 @media (max-width: 768px) {
   .file-list-container {
     padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   }
 }
 </style>

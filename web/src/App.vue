@@ -291,9 +291,38 @@ async function handleDeleteItem(item) {
   }
 }
 
+function updateThemeColorMeta(dark) {
+  const color = dark ? '#1e293b' : '#ffffff'
+  const metaList = document.querySelectorAll('meta[name="theme-color"]')
+  if (metaList.length > 0) {
+    metaList.forEach(m => m.setAttribute('content', color))
+  } else {
+    const m = document.createElement('meta')
+    m.name = 'theme-color'
+    m.content = color
+    document.head.appendChild(m)
+  }
+}
+
+function applyTheme(dark) {
+  isDark.value = dark
+  const root = document.documentElement
+  if (dark) {
+    root.classList.add('dark')
+    root.classList.remove('light')
+    root.style.colorScheme = 'dark'
+  } else {
+    root.classList.remove('dark')
+    root.classList.add('light')
+    root.style.colorScheme = 'light'
+  }
+  updateThemeColorMeta(dark)
+}
+
 function toggleTheme() {
-  isDark.value = !isDark.value
-  localStorage.setItem('awdex-theme', isDark.value ? 'dark' : 'light')
+  const newDark = !isDark.value
+  applyTheme(newDark)
+  localStorage.setItem('awdex-theme', newDark ? 'dark' : 'light')
 }
 
 // Window Drag & Drop
@@ -352,7 +381,13 @@ function handleGlobalKeydown(e) {
 }
 
 onMounted(async () => {
+  applyTheme(isDark.value)
   window.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'awdex-theme') {
+      applyTheme(e.newValue !== 'light')
+    }
+  })
 
   // Listen to hash changes for browser back/forward buttons
   window.addEventListener('hashchange', () => {
@@ -393,8 +428,8 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   min-height: 0;
-  height: calc(100dvh - 52px);
-  max-height: calc(100dvh - 52px);
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
   position: relative;
 }

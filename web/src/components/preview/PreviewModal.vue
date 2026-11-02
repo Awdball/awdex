@@ -755,7 +755,8 @@ onUnmounted(() => {
     border: none;
   }
   .preview-header {
-    padding: 0 10px;
+    height: calc(50px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) 10px 0 10px;
   }
   .preview-filesize, .hide-xs {
     display: none;
