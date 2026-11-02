@@ -180,7 +180,9 @@
           <CornerLeftUp :size="32" class="parent-card-icon" />
         </div>
         <div class="card-footer">
-          <span class="card-title">.. (Parent Directory)</span>
+          <div class="card-info">
+            <span class="card-title">.. (Parent Directory)</span>
+          </div>
         </div>
       </div>
 
@@ -703,6 +705,8 @@ td {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 16px;
+  width: 100%;
+  max-inline-size: 100%;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -722,6 +726,7 @@ td {
   flex-direction: column;
   transition: all 0.18s ease;
   box-shadow: var(--shadow-sm);
+  min-width: 0;
 }
 
 .grid-card:hover {
@@ -737,20 +742,41 @@ td {
 
 .card-thumb-area {
   position: relative;
+  width: 100%;
   aspect-ratio: 16 / 10;
+  min-height: 110px;
   background-color: var(--bg-app);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .card-thumb-img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
   transition: transform 0.25s ease;
+}
+
+.card-icon-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.parent-thumb-area {
+  background-color: var(--bg-surface-hover);
+}
+
+.parent-card-icon {
+  color: var(--text-muted);
 }
 
 .grid-card:hover .card-thumb-img {
@@ -770,6 +796,7 @@ td {
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 2;
 }
 
 .card-size-tag {
@@ -783,6 +810,7 @@ td {
   font-family: var(--font-mono);
   padding: 1px 5px;
   border-radius: 3px;
+  z-index: 2;
 }
 
 .card-footer {
@@ -791,11 +819,15 @@ td {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex: 1 0 auto;
+  min-height: 48px;
+  background-color: var(--bg-surface);
 }
 
 .card-info {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .card-title {
@@ -843,6 +875,8 @@ td {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 12px;
+  width: 100%;
+  max-inline-size: 100%;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -861,6 +895,7 @@ td {
   cursor: pointer;
   transition: background-color 0.12s;
   text-align: center;
+  min-width: 0;
 }
 
 .icon-item:hover {
@@ -940,8 +975,23 @@ td {
   }
 
   .grid-view {
-    grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
     gap: 10px;
+  }
+
+  .card-thumb-area {
+    min-height: 80px;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid-view {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+  }
+
+  .card-thumb-area {
+    min-height: 80px;
   }
 }
 
