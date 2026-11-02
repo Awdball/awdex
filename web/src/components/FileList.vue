@@ -209,6 +209,11 @@
             <component :is="getItemIcon(item)" :size="48" />
           </div>
 
+          <!-- Folder overlay badge when folder has a thumbnail -->
+          <div v-if="item.is_dir && item.has_thumb && !failedThumbs[item.path]" class="card-overlay-badge folder-badge">
+            <Folder :size="13" />
+          </div>
+
           <!-- Video play overlay indicator -->
           <div v-if="item.category === 'video'" class="card-overlay-badge video-badge">
             <Play :size="14" />
@@ -226,34 +231,34 @@
         <div class="card-footer">
           <div class="card-info">
             <span class="card-title" :title="item.name">{{ item.name }}</span>
-            <span class="card-subtitle">{{ item.is_dir ? `${item.item_count || 0} items` : formatDate(item.mod_time) }}</span>
+            <span class="card-subtitle">{{ item.is_dir ? `${item.item_count || 0} items` : `${formatBytes(item.size)} • ${formatDate(item.mod_time)}` }}</span>
           </div>
 
-          <div class="card-actions" @click.stop>
+          <div class="card-actions" :class="{ 'is-dir': item.is_dir }" @click.stop>
             <button 
               class="card-btn" 
               title="Share Public Link" 
               @click="$emit('share', item)"
             >
-              <Share2 :size="14" />
+              <Share2 :size="15" />
             </button>
-            <a 
-              v-if="!item.is_dir" 
-              :href="'/raw' + encodePath(item.path) + '?download=1'" 
-              class="card-btn" 
-              title="Download" 
-              download
-            >
-              <Download :size="14" />
-            </a>
-            <button 
-              v-if="!item.is_dir" 
-              class="card-btn" 
-              title="Preview" 
-              @click="$emit('preview', item)"
-            >
-              <Eye :size="14" />
-            </button>
+            <template v-if="!item.is_dir">
+              <a 
+                :href="'/raw' + encodePath(item.path) + '?download=1'" 
+                class="card-btn" 
+                title="Download" 
+                download
+              >
+                <Download :size="15" />
+              </a>
+              <button 
+                class="card-btn" 
+                title="Preview" 
+                @click="$emit('preview', item)"
+              >
+                <Eye :size="15" />
+              </button>
+            </template>
           </div>
         </div>
       </div>
@@ -814,18 +819,17 @@ td {
 }
 
 .card-footer {
-  padding: 10px;
+  padding: 8px 10px 10px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   flex: 1 0 auto;
-  min-height: 48px;
+  min-height: 72px;
   background-color: var(--bg-surface);
 }
 
 .card-info {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   overflow: hidden;
 }
@@ -835,34 +839,50 @@ td {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-main);
-  white-space: nowrap;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .card-subtitle {
   display: block;
   font-size: 11px;
   color: var(--text-subtle);
-  margin-top: 2px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 100%;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: auto;
 }
 
-.grid-card:hover .card-actions {
-  opacity: 1;
+.card-actions.is-dir {
+  grid-template-columns: 1fr;
 }
 
 .card-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 4px;
+  width: 100%;
+  height: 28px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-app);
+  transition: all 0.15s ease;
 }
 
 .card-btn:hover {

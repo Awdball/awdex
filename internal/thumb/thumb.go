@@ -79,6 +79,10 @@ func (m *Manager) GetThumbnail(relPath string) (string, error) {
 		return "", err
 	}
 
+	if fi.IsDir() {
+		return m.getDirectoryThumbnail(relPath, fullPath, fi)
+	}
+
 	cacheKey := m.hashKey(relPath, fi.ModTime(), fi.Size(), "thumb")
 	cachePath := filepath.Join(m.thumbDir, cacheKey+".jpg")
 
@@ -324,4 +328,101 @@ func (m *Manager) hashKey(relPath string, modTime time.Time, size int64, prefix 
 	raw := fmt.Sprintf("%s:%d:%d:%s", relPath, modTime.Unix(), size, prefix)
 	hash := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(hash[:16])
+}
+
+func (m *Manager) getDirectoryThumbnail(relPath, fullPath string, fi os.FileInfo) (string, error) {
+	cacheKey := m.hashKey(relPath, fi.ModTime(), fi.Size(), "thumb-dir")
+	cachePath := filepath.Join(m.thumbDir, cacheKey+".jpg")
+
+	if _, err := os.Stat(cachePath); err == nil {
+		return cachePath, nil
+	}
+
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		return "", err
+	}
+
+	// 1. Look for explicit cover files first
+	coverNames := []string{"cover.jpg", "cover.png", "folder.jpg", "folder.png", "poster.jpg", "poster.png", "thumb.jpg", "thumb.png"}
+	var targetFile string
+
+	for _, cn := range coverNames {
+		for _, e := range entries {
+			if strings.EqualFold(e.Name(), cn) {
+				targetFile = filepath.Join(fullPath, e.Name())
+				break
+			}
+		}
+		if targetFile != "" {
+			break
+		}
+	}
+
+	// 2. Fall back to first thumbnailable image or video
+	if targetFile == "" {
+		for _, e := range entries {
+			if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			cat, _, ext := util.DetectCategory(e.Name(), false)
+			if m.CanThumbnail(cat, ext) {
+				targetFile = filepath.Join(fullPath, e.Name())
+				break
+			}
+		}
+	}
+
+	if targetFile == "" {
+		return "", fmt.Errorf("no thumbnailable files in directory")
+	}
+
+	// In-flight deduplication
+	val, _ := m.inFlight.LoadOrStore(cacheKey, &sync.Mutex{})
+	mtx := val.(*sync.Mutex)
+	mtx.Lock()
+	defer mtx.Unlock()
+	defer m.inFlight.Delete(cacheKey)
+
+	if _, err := os.Stat(cachePath); err == nil {
+		return cachePath, nil
+	}
+
+	m.sem <- struct{}{}
+	defer func() { <-m.sem }()
+
+	tmpPath := cachePath + ".tmp.jpg"
+	tFi, err := os.Stat(targetFile)
+	if err != nil {
+		return "", err
+	}
+
+	cat, _, ext := util.DetectCategory(tFi.Name(), false)
+	switch cat {
+	case util.CatImage:
+		err = m.generateImageThumb(targetFile, tmpPath)
+	case util.CatVideo:
+		err = m.generateVideoThumb(targetFile, tmpPath)
+	case util.CatAudio:
+		err = m.generateAudioThumb(targetFile, tmpPath)
+	case util.CatDocument:
+		if ext == ".pdf" && m.hasPoppler {
+			err = m.generatePdfThumb(targetFile, tmpPath)
+		} else {
+			err = fmt.Errorf("unsupported doc")
+		}
+	default:
+		err = fmt.Errorf("unsupported thumb target: %s", targetFile)
+	}
+
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+
+	if err := os.Rename(tmpPath, cachePath); err != nil {
+		return "", err
+	}
+
+	return cachePath, nil
 }

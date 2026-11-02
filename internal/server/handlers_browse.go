@@ -77,6 +77,32 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 		if isDir {
 			totalDirs++
+			subFullPath := filepath.Join(fullPath, name)
+			if subF, err := os.Open(subFullPath); err == nil {
+				if subEntries, err := subF.ReadDir(100); err == nil {
+					validCount := 0
+					hasFolderThumb := false
+					for _, se := range subEntries {
+						seName := se.Name()
+						if strings.HasPrefix(seName, ".") || seName == "awdex" {
+							continue
+						}
+						validCount++
+						if !hasFolderThumb && !se.IsDir() {
+							subCat, _, subExt := util.DetectCategory(seName, false)
+							if s.thumbs.CanThumbnail(subCat, subExt) {
+								hasFolderThumb = true
+							}
+						}
+					}
+					item.ItemCount = validCount
+					if hasFolderThumb {
+						hasThumb = true
+						item.HasThumb = true
+					}
+				}
+				subF.Close()
+			}
 		} else {
 			totalFiles++
 			totalBytes += size
