@@ -735,6 +735,7 @@ td {
 .grid-view {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-auto-rows: max-content;
   gap: 16px;
   width: 100%;
   max-inline-size: 100%;
@@ -759,6 +760,7 @@ td {
   transition: all 0.18s ease;
   box-shadow: var(--shadow-sm);
   min-width: 0;
+  min-height: 200px;
 }
 
 .grid-card:hover {
@@ -921,6 +923,7 @@ td {
 .icons-view {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-auto-rows: max-content;
   gap: 12px;
   width: 100%;
   max-inline-size: 100%;
@@ -1024,18 +1027,28 @@ td {
 
   .grid-view {
     grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+    grid-auto-rows: max-content;
     gap: 12px;
   }
 
+  .grid-card {
+    min-height: 190px;
+  }
+
   .card-thumb-area {
-    min-height: 90px;
+    min-height: 95px;
   }
 }
 
 @media (max-width: 640px) {
   .grid-view {
-    grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-auto-rows: max-content;
+    gap: 10px;
+  }
+
+  .grid-card {
+    min-height: 190px;
   }
 
   .card-thumb-area {

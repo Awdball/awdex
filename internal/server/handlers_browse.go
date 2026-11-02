@@ -78,30 +78,11 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		if isDir {
 			totalDirs++
 			subFullPath := filepath.Join(fullPath, name)
-			if subF, err := os.Open(subFullPath); err == nil {
-				if subEntries, err := subF.ReadDir(100); err == nil {
-					validCount := 0
-					hasFolderThumb := false
-					for _, se := range subEntries {
-						seName := se.Name()
-						if strings.HasPrefix(seName, ".") || seName == "awdex" {
-							continue
-						}
-						validCount++
-						if !hasFolderThumb && !se.IsDir() {
-							subCat, _, subExt := util.DetectCategory(seName, false)
-							if s.thumbs.CanThumbnail(subCat, subExt) {
-								hasFolderThumb = true
-							}
-						}
-					}
-					item.ItemCount = validCount
-					if hasFolderThumb {
-						hasThumb = true
-						item.HasThumb = true
-					}
-				}
-				subF.Close()
+			itemCount, hasFolderThumb := s.checkFolderThumbMedia(subFullPath, 2)
+			item.ItemCount = itemCount
+			if hasFolderThumb {
+				hasThumb = true
+				item.HasThumb = true
 			}
 		} else {
 			totalFiles++
@@ -218,3 +199,61 @@ func buildBreadcrumbs(relPath string) []model.Crumb {
 
 	return crumbs
 }
+
+func (s *Server) checkFolderThumbMedia(dirPath string, maxDepth int) (int, bool) {
+	f, err := os.Open(dirPath)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+
+	entries, err := f.ReadDir(100)
+	if err != nil {
+		return 0, false
+	}
+
+	validCount := 0
+	hasThumb := false
+	var subDirs []string
+	coverNames := []string{"cover.jpg", "cover.png", "folder.jpg", "folder.png", "poster.jpg", "poster.png", "thumb.jpg", "thumb.png"}
+
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || name == "awdex" {
+			continue
+		}
+		validCount++
+
+		if !hasThumb {
+			if !e.IsDir() {
+				for _, cn := range coverNames {
+					if strings.EqualFold(name, cn) {
+						hasThumb = true
+						break
+					}
+				}
+				if !hasThumb {
+					cat, _, ext := util.DetectCategory(name, false)
+					if s.thumbs.CanThumbnail(cat, ext) {
+						hasThumb = true
+					}
+				}
+			} else if maxDepth > 0 {
+				subDirs = append(subDirs, filepath.Join(dirPath, name))
+			}
+		}
+	}
+
+	if !hasThumb && maxDepth > 0 {
+		for _, sd := range subDirs {
+			_, subHasThumb := s.checkFolderThumbMedia(sd, maxDepth-1)
+			if subHasThumb {
+				hasThumb = true
+				break
+			}
+		}
+	}
+
+	return validCount, hasThumb
+}
+

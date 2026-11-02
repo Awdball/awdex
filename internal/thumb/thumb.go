@@ -330,6 +330,53 @@ func (m *Manager) hashKey(relPath string, modTime time.Time, size int64, prefix 
 	return hex.EncodeToString(hash[:16])
 }
 
+func (m *Manager) findDirectoryCover(fullPath string, maxDepth int) string {
+	if maxDepth < 0 {
+		return ""
+	}
+
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		return ""
+	}
+
+	// 1. Look for explicit cover files first
+	coverNames := []string{"cover.jpg", "cover.png", "folder.jpg", "folder.png", "poster.jpg", "poster.png", "thumb.jpg", "thumb.png"}
+	for _, cn := range coverNames {
+		for _, e := range entries {
+			if strings.EqualFold(e.Name(), cn) {
+				return filepath.Join(fullPath, e.Name())
+			}
+		}
+	}
+
+	// 2. Fall back to first thumbnailable image or video
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		cat, _, ext := util.DetectCategory(e.Name(), false)
+		if m.CanThumbnail(cat, ext) {
+			return filepath.Join(fullPath, e.Name())
+		}
+	}
+
+	// 3. Recurse into subdirectories if depth allows
+	if maxDepth > 0 {
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || e.Name() == "awdex" {
+				continue
+			}
+			subCover := m.findDirectoryCover(filepath.Join(fullPath, e.Name()), maxDepth-1)
+			if subCover != "" {
+				return subCover
+			}
+		}
+	}
+
+	return ""
+}
+
 func (m *Manager) getDirectoryThumbnail(relPath, fullPath string, fi os.FileInfo) (string, error) {
 	cacheKey := m.hashKey(relPath, fi.ModTime(), fi.Size(), "thumb-dir")
 	cachePath := filepath.Join(m.thumbDir, cacheKey+".jpg")
@@ -338,43 +385,9 @@ func (m *Manager) getDirectoryThumbnail(relPath, fullPath string, fi os.FileInfo
 		return cachePath, nil
 	}
 
-	entries, err := os.ReadDir(fullPath)
-	if err != nil {
-		return "", err
-	}
-
-	// 1. Look for explicit cover files first
-	coverNames := []string{"cover.jpg", "cover.png", "folder.jpg", "folder.png", "poster.jpg", "poster.png", "thumb.jpg", "thumb.png"}
-	var targetFile string
-
-	for _, cn := range coverNames {
-		for _, e := range entries {
-			if strings.EqualFold(e.Name(), cn) {
-				targetFile = filepath.Join(fullPath, e.Name())
-				break
-			}
-		}
-		if targetFile != "" {
-			break
-		}
-	}
-
-	// 2. Fall back to first thumbnailable image or video
+	targetFile := m.findDirectoryCover(fullPath, 2)
 	if targetFile == "" {
-		for _, e := range entries {
-			if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-				continue
-			}
-			cat, _, ext := util.DetectCategory(e.Name(), false)
-			if m.CanThumbnail(cat, ext) {
-				targetFile = filepath.Join(fullPath, e.Name())
-				break
-			}
-		}
-	}
-
-	if targetFile == "" {
-		return "", fmt.Errorf("no thumbnailable files in directory")
+		return "", fmt.Errorf("no thumbnailable files in directory %s", relPath)
 	}
 
 	// In-flight deduplication

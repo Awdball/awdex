@@ -71,11 +71,15 @@ func (s *Server) Start() error {
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				path := strings.TrimPrefix(r.URL.Path, "/")
 				if path == "" {
+					w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 					fileServer.ServeHTTP(w, r)
 					return
 				}
 				if f, err := distSub.Open(path); err == nil {
 					f.Close()
+					if strings.HasPrefix(path, "assets/") {
+						w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					}
 					fileServer.ServeHTTP(w, r)
 					return
 				}
@@ -83,6 +87,7 @@ func (s *Server) Start() error {
 				if err == nil {
 					defer indexFile.Close()
 					stat, _ := indexFile.Stat()
+					w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 					http.ServeContent(w, r, "index.html", stat.ModTime(), indexFile.(io.ReadSeeker))
 					return
 				}
