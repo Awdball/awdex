@@ -113,7 +113,6 @@ body {
   min-height: 100dvh;
   overflow: hidden;
   user-select: none;
-  touch-action: manipulation;
 }
 
 /* Scrollbar styles */

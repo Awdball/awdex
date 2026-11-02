@@ -459,6 +459,8 @@ onUnmounted(() => {
   overflow: hidden;
   position: relative;
   background-color: var(--bg-app);
+  display: flex;
+  flex-direction: column;
 }
 
 .main-content.has-audio-dock {

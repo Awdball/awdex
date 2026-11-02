@@ -25,6 +25,19 @@
       </div>
     </div>
 
+    <!-- Anchored Parent Directory Bar (always visible under filter box) -->
+    <div v-if="currentPath !== '/'" class="parent-anchor-bar">
+      <button 
+        class="parent-anchor-btn" 
+        @click="$emit('navigate', parentPath)"
+        title="Go up to parent folder"
+      >
+        <CornerLeftUp :size="16" class="parent-anchor-icon" />
+        <span class="parent-anchor-label">.. Back to Parent Directory</span>
+        <span class="parent-anchor-path">{{ parentPath === '/' ? '~ Root' : parentPath }}</span>
+      </button>
+    </div>
+
     <!-- Empty Directory State -->
     <div v-if="filteredItems.length === 0" class="empty-state">
       <FolderArchive :size="48" class="empty-icon" />
@@ -64,24 +77,6 @@
           </tr>
         </thead>
         <tbody>
-          <!-- Parent Directory Row if not in root -->
-          <tr v-if="currentPath !== '/'" class="table-row parent-row" @click="$emit('navigate', parentPath)">
-            <td class="td-name">
-              <div class="td-name-inner">
-                <div class="icon-thumb-wrapper">
-                  <CornerLeftUp :size="16" class="item-icon parent-icon" />
-                </div>
-                <div class="name-text-stack">
-                  <span class="file-name">.. (Parent Directory)</span>
-                </div>
-              </div>
-            </td>
-            <td class="td-date">-</td>
-            <td class="td-size">-</td>
-            <td class="td-type">-</td>
-            <td class="td-actions"></td>
-          </tr>
-
           <!-- Item Rows -->
           <tr 
             v-for="item in visibleItems" 
@@ -174,18 +169,6 @@
 
     <!-- 2. GRID / THUMBNAIL VIEW -->
     <div v-else-if="viewMode === 'grid'" class="grid-view" @scroll.passive="onScroll">
-      <!-- Parent directory card -->
-      <div v-if="currentPath !== '/'" class="grid-card parent-card" @click="$emit('navigate', parentPath)">
-        <div class="card-thumb-area parent-thumb-area">
-          <CornerLeftUp :size="32" class="parent-card-icon" />
-        </div>
-        <div class="card-footer">
-          <div class="card-info">
-            <span class="card-title">.. (Parent Directory)</span>
-          </div>
-        </div>
-      </div>
-
       <!-- Item cards -->
       <div 
         v-for="item in visibleItems" 
@@ -266,11 +249,6 @@
 
     <!-- 3. COMPACT ICONS VIEW -->
     <div v-else class="icons-view" @scroll.passive="onScroll">
-      <div v-if="currentPath !== '/'" class="icon-item parent-item" @click="$emit('navigate', parentPath)">
-        <CornerLeftUp :size="24" class="parent-icon" />
-        <span class="icon-label">..</span>
-      </div>
-
       <div 
         v-for="item in visibleItems" 
         :key="item.path" 
@@ -496,6 +474,54 @@ function getItemColor(item) {
   color: var(--text-subtle);
 }
 
+/* Anchored Parent Directory Bar */
+.parent-anchor-bar {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.parent-anchor-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.parent-anchor-btn:hover {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.parent-anchor-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.parent-anchor-label {
+  font-weight: 600;
+}
+
+.parent-anchor-path {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Empty state */
 .empty-state {
   display: flex;
@@ -534,12 +560,12 @@ function getItemColor(item) {
   outline: none;
   width: 100%;
   max-inline-size: 100%;
-  flex: 0 1 auto;
+  flex: 1 1 0px;
   min-height: 0;
-  max-height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .file-table {
@@ -712,13 +738,14 @@ td {
   gap: 16px;
   width: 100%;
   max-inline-size: 100%;
-  flex: 1 1 auto;
+  flex: 1 1 0px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   align-content: start;
-  padding-bottom: 8px;
+  padding-bottom: 16px;
 }
 
 .grid-card {
@@ -897,13 +924,14 @@ td {
   gap: 12px;
   width: 100%;
   max-inline-size: 100%;
-  flex: 1 1 auto;
+  flex: 1 1 0px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   align-content: start;
-  padding-bottom: 8px;
+  padding-bottom: 16px;
 }
 
 .icon-item {
@@ -995,23 +1023,23 @@ td {
   }
 
   .grid-view {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+    gap: 12px;
   }
 
   .card-thumb-area {
-    min-height: 80px;
+    min-height: 90px;
   }
 }
 
 @media (max-width: 640px) {
   .grid-view {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+    gap: 12px;
   }
 
   .card-thumb-area {
-    min-height: 80px;
+    min-height: 90px;
   }
 }
 
