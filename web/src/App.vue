@@ -1,5 +1,12 @@
 <template>
-  <div class="app-root" :class="{ 'dark': isDark }">
+  <div 
+    class="app-root" 
+    :class="{ 'dark': isDark }"
+    :data-browse-state="browseState"
+    :data-active-modal="activeModal"
+    :data-drag-state="dragState"
+    :data-current-path="currentPath"
+  >
     <!-- Top Navbar -->
     <Navbar 
       :title="serverInfo?.title || 'awdex'"
@@ -10,17 +17,19 @@
       :read-only="serverInfo?.read_only"
       @navigate="navigateTo"
       @toggle-sidebar="toggleSidebar"
-      @open-search="showSearch = true"
-      @open-upload="showUpload = true"
+      @open-search="openModal(MODAL_STATES.SEARCH)"
+      @open-upload="openUploadModal([])"
       @refresh="loadDirectory(currentPath)"
       @toggle-theme="toggleTheme"
       @open-shares="openShareModal(null)"
-      @open-info="showInfo = true"
+      @open-info="openInfoModal"
     />
 
     <!-- Main Workspace Area -->
     <div 
       class="app-workspace"
+      :data-state="browseState"
+      @dragenter.prevent="onWindowDragEnter"
       @dragover.prevent="onWindowDragOver"
       @dragleave.prevent="onWindowDragLeave"
       @drop.prevent="onWindowDrop"
@@ -41,10 +50,25 @@
       />
 
       <!-- Content Area -->
-      <main class="main-content" :class="{ 'has-audio-dock': !!currentTrack }">
-        <div v-if="loading" class="content-loading">
+      <main class="main-content" :class="{ 'has-audio-dock': !!currentTrack }" :data-state="browseState">
+        <div v-if="browseState === BROWSE_STATES.LOADING || browseState === BROWSE_STATES.IDLE" class="content-loading">
           <div class="spinner"></div>
           <span>Loading directory...</span>
+        </div>
+
+        <div v-else-if="browseState === BROWSE_STATES.ERROR" class="content-error" role="alert">
+          <AlertCircle :size="44" class="error-icon" />
+          <h3 class="error-title">Unable to load directory</h3>
+          <p class="error-desc">{{ browseError || 'The requested path could not be read.' }}</p>
+          <div class="error-actions">
+            <button class="error-btn primary" @click="loadDirectory(currentPath)">
+              <RefreshCw :size="15" />
+              <span>Retry</span>
+            </button>
+            <button v-if="currentPath !== '/'" class="error-btn" @click="navigateTo('/')">
+              <span>Back to Root (~)</span>
+            </button>
+          </div>
         </div>
 
         <FileList 
@@ -53,6 +77,7 @@
           :current-path="currentPath"
           :parent-path="parentPath"
           :view-mode="viewMode"
+          :browse-state="browseState"
           :read-only="serverInfo?.read_only"
           :total-dirs="totalDirs"
           :total-files="totalFiles"
@@ -67,7 +92,7 @@
       </main>
 
       <!-- Global Drag & Drop Overlay -->
-      <div v-if="isWindowDragging && !serverInfo?.read_only" class="window-drop-overlay">
+      <div v-if="dragState === DRAG_STATES.DRAGGING && !serverInfo?.read_only" class="window-drop-overlay">
         <div class="drop-notice">
           <UploadCloud :size="64" />
           <h2>Drop files to upload to {{ currentPath }}</h2>
@@ -79,57 +104,58 @@
     <AudioPlayer 
       v-if="currentTrack" 
       :track="currentTrack" 
-      @close="currentTrack = null"
+      @close="closeAudioPlayer"
       @next="playNextAudio"
       @prev="playPrevAudio"
     />
 
     <!-- Preview Modal -->
     <PreviewModal 
-      v-if="previewItem" 
+      v-if="activeModal === MODAL_STATES.PREVIEW && previewItem" 
       :item="previewItem" 
       :has-prev="hasPrevPreview"
       :has-next="hasNextPreview"
-      @close="previewItem = null"
+      @close="closeModal"
       @prev="navPreview(-1)"
       @next="navPreview(1)"
     />
 
     <!-- Upload Modal -->
     <UploadModal 
-      v-if="showUpload" 
+      v-if="activeModal === MODAL_STATES.UPLOAD" 
       :current-path="currentPath"
-      @close="showUpload = false"
-      @uploaded="loadDirectory(currentPath)"
+      :initial-files="pendingDroppedFiles"
+      @close="closeModal"
+      @uploaded="onFilesUploaded"
     />
 
     <!-- Global Search Modal -->
     <SearchModal 
-      v-if="showSearch" 
-      @close="showSearch = false"
+      v-if="activeModal === MODAL_STATES.SEARCH" 
+      @close="closeModal"
       @navigate="navigateTo"
       @select-item="openPreview"
     />
 
     <!-- Share Modal -->
     <ShareModal 
-      v-if="showShareModal" 
+      v-if="activeModal === MODAL_STATES.SHARE" 
       :item="shareTargetItem" 
-      @close="showShareModal = false" 
+      @close="closeModal" 
     />
 
     <!-- Info Modal -->
     <InfoModal 
-      v-if="showInfo" 
+      v-if="activeModal === MODAL_STATES.INFO" 
       :info="serverInfo" 
-      @close="showInfo = false" 
+      @close="closeModal" 
     />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { UploadCloud } from '@lucide/vue'
+import { UploadCloud, AlertCircle, RefreshCw } from '@lucide/vue'
 import Navbar from './components/Navbar.vue'
 import SidebarTree from './components/SidebarTree.vue'
 import FileList from './components/FileList.vue'
@@ -140,8 +166,15 @@ import SearchModal from './components/SearchModal.vue'
 import InfoModal from './components/InfoModal.vue'
 import ShareModal from './components/ShareModal.vue'
 import { fetchBrowse, fetchInfo, deleteItem } from './utils/api.js'
+import {
+  BROWSE_STATES,
+  MODAL_STATES,
+  DRAG_STATES,
+  AUDIO_STATES,
+  syncAgentState
+} from './utils/stateMachines.js'
 
-// State
+// Directory Browse State Machine
 const currentPath = ref('/')
 const parentPath = ref('/')
 const breadcrumbs = ref([])
@@ -149,7 +182,10 @@ const items = ref([])
 const totalDirs = ref(0)
 const totalFiles = ref(0)
 const totalBytes = ref(0)
-const loading = ref(true)
+const browseState = ref(BROWSE_STATES.IDLE)
+const browseError = ref(null)
+let browseRequestId = 0
+let browseAbortController = null
 
 const isMobileViewport = () => window.innerWidth <= 768
 
@@ -179,46 +215,144 @@ function onSidebarNavigate(path) {
   }
 }
 
+// Coordinated Top-Level Modal State Machine
+const activeModal = ref(MODAL_STATES.NONE)
 const selectedItem = ref(null)
 const previewItem = ref(null)
-const currentTrack = ref(null)
+const shareTargetItem = ref(null)
+const pendingDroppedFiles = ref([])
 const serverInfo = ref(null)
 
-const showUpload = ref(false)
-const showSearch = ref(false)
-const showInfo = ref(false)
-const showShareModal = ref(false)
-const shareTargetItem = ref(null)
+function openModal(modalType) {
+  activeModal.value = modalType
+  syncAgentState({ activeModal: modalType })
+}
+
+function closeModal() {
+  if (activeModal.value === MODAL_STATES.PREVIEW) {
+    previewItem.value = null
+  } else if (activeModal.value === MODAL_STATES.UPLOAD) {
+    pendingDroppedFiles.value = []
+  } else if (activeModal.value === MODAL_STATES.SHARE) {
+    shareTargetItem.value = null
+  }
+  activeModal.value = MODAL_STATES.NONE
+  syncAgentState({ activeModal: MODAL_STATES.NONE })
+}
+
+function openUploadModal(files = []) {
+  pendingDroppedFiles.value = Array.isArray(files) ? files : []
+  openModal(MODAL_STATES.UPLOAD)
+}
 
 function openShareModal(item = null) {
   shareTargetItem.value = item
-  showShareModal.value = true
+  openModal(MODAL_STATES.SHARE)
 }
 
-const isWindowDragging = ref(false)
+async function openInfoModal() {
+  openModal(MODAL_STATES.INFO)
+  await refreshServerInfo()
+}
+
+function onFilesUploaded() {
+  pendingDroppedFiles.value = []
+  loadDirectory(currentPath.value)
+  refreshServerInfo()
+}
+
+// Window Drag & Drop State Machine
+const dragState = ref(DRAG_STATES.IDLE)
 let dragCounter = 0
 
-// Audio Playlist in current directory
-const audioTracks = computed(() => {
+function resetDragState() {
+  dragCounter = 0
+  if (dragState.value !== DRAG_STATES.IDLE) {
+    dragState.value = DRAG_STATES.IDLE
+    syncAgentState({ dragState: DRAG_STATES.IDLE })
+  }
+}
+
+function onWindowDragEnter(e) {
+  if (serverInfo.value?.read_only) return
+  const types = e.dataTransfer?.types
+  if (types && !Array.from(types).includes('Files')) return
+  dragCounter++
+  if (dragState.value !== DRAG_STATES.DRAGGING) {
+    dragState.value = DRAG_STATES.DRAGGING
+    syncAgentState({ dragState: DRAG_STATES.DRAGGING })
+  }
+}
+
+function onWindowDragOver(e) {
+  if (serverInfo.value?.read_only) return
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+function onWindowDragLeave() {
+  dragCounter--
+  if (dragCounter <= 0) {
+    resetDragState()
+  }
+}
+
+function onWindowDrop(e) {
+  resetDragState()
+  if (serverInfo.value?.read_only) return
+  const dropped = e.dataTransfer?.files ? Array.from(e.dataTransfer.files) : []
+  if (dropped.length > 0) {
+    openUploadModal(dropped)
+  }
+}
+
+// Persistent Audio Playlist & Player State Machine
+const currentTrack = ref(null)
+const audioPlaylist = ref([])
+
+const directoryAudioTracks = computed(() => {
   return items.value.filter(it => it.category === 'audio')
 })
 
 function playAudio(track) {
+  const dirTracks = directoryAudioTracks.value
+  if (dirTracks.length > 0 && dirTracks.some(t => t.path === track.path)) {
+    audioPlaylist.value = [...dirTracks]
+  } else if (!audioPlaylist.value.some(t => t.path === track.path)) {
+    audioPlaylist.value = [track]
+  }
   currentTrack.value = track
 }
 
-function playNextAudio() {
-  if (!currentTrack.value || audioTracks.value.length === 0) return
-  const idx = audioTracks.value.findIndex(t => t.path === currentTrack.value.path)
-  const nextIdx = (idx + 1) % audioTracks.value.length
-  currentTrack.value = audioTracks.value[nextIdx]
+function closeAudioPlayer() {
+  currentTrack.value = null
+  audioPlaylist.value = []
+  syncAgentState({ audioState: AUDIO_STATES.IDLE })
+}
+
+function playNextAudio(opts = {}) {
+  const list = audioPlaylist.value.length > 0 ? audioPlaylist.value : directoryAudioTracks.value
+  if (!currentTrack.value || list.length === 0) return
+  const idx = list.findIndex(t => t.path === currentTrack.value.path)
+  if (opts?.shuffle && list.length > 1) {
+    let randIdx = idx
+    while (randIdx === idx) {
+      randIdx = Math.floor(Math.random() * list.length)
+    }
+    currentTrack.value = list[randIdx]
+    return
+  }
+  const nextIdx = (idx + 1) % list.length
+  currentTrack.value = list[nextIdx]
 }
 
 function playPrevAudio() {
-  if (!currentTrack.value || audioTracks.value.length === 0) return
-  const idx = audioTracks.value.findIndex(t => t.path === currentTrack.value.path)
-  const prevIdx = (idx - 1 + audioTracks.value.length) % audioTracks.value.length
-  currentTrack.value = audioTracks.value[prevIdx]
+  const list = audioPlaylist.value.length > 0 ? audioPlaylist.value : directoryAudioTracks.value
+  if (!currentTrack.value || list.length === 0) return
+  const idx = list.findIndex(t => t.path === currentTrack.value.path)
+  const prevIdx = (idx - 1 + list.length) % list.length
+  currentTrack.value = list[prevIdx]
 }
 
 // Preview Navigation
@@ -244,6 +378,7 @@ function openPreview(item) {
     return
   }
   previewItem.value = item
+  openModal(MODAL_STATES.PREVIEW)
 }
 
 function navPreview(direction) {
@@ -254,11 +389,22 @@ function navPreview(direction) {
   }
 }
 
-// Navigation & Directory loading
+// Navigation & Directory loading state machine with race cancellation
 async function loadDirectory(path) {
-  loading.value = true
+  const reqId = ++browseRequestId
+  if (browseAbortController) {
+    browseAbortController.abort()
+  }
+  browseAbortController = new AbortController()
+
+  browseState.value = BROWSE_STATES.LOADING
+  browseError.value = null
+  syncAgentState({ browseState: BROWSE_STATES.LOADING })
+
   try {
-    const data = await fetchBrowse(path)
+    const data = await fetchBrowse(path, { signal: browseAbortController.signal })
+    if (reqId !== browseRequestId) return
+
     currentPath.value = data.path
     parentPath.value = data.parent_path
     breadcrumbs.value = data.breadcrumbs || []
@@ -268,12 +414,21 @@ async function loadDirectory(path) {
     totalBytes.value = data.total_bytes || 0
     selectedItem.value = null
 
-    // Sync URL hash
-    window.location.hash = encodeURI(data.path)
+    const nextState = items.value.length === 0 ? BROWSE_STATES.EMPTY : BROWSE_STATES.READY
+    browseState.value = nextState
+    syncAgentState({ browseState: nextState, currentPath: data.path })
+
+    const targetHash = '#' + encodeURI(data.path)
+    if (window.location.hash !== targetHash) {
+      window.location.hash = encodeURI(data.path)
+    }
   } catch (err) {
+    if (err.name === 'AbortError' || reqId !== browseRequestId) return
     console.error('Failed to load path:', err)
-  } finally {
-    loading.value = false
+    currentPath.value = path || '/'
+    browseError.value = err.message || 'Failed to load directory'
+    browseState.value = BROWSE_STATES.ERROR
+    syncAgentState({ browseState: BROWSE_STATES.ERROR, currentPath: currentPath.value })
   }
 }
 
@@ -286,8 +441,17 @@ async function handleDeleteItem(item) {
   try {
     await deleteItem(item.path)
     loadDirectory(currentPath.value)
+    refreshServerInfo()
   } catch (err) {
     alert('Failed to delete: ' + err.message)
+  }
+}
+
+async function refreshServerInfo() {
+  try {
+    serverInfo.value = await fetchInfo()
+  } catch (err) {
+    console.error('Failed to load server info:', err)
   }
 }
 
@@ -325,54 +489,51 @@ function toggleTheme() {
   localStorage.setItem('awdex-theme', newDark ? 'dark' : 'light')
 }
 
-// Window Drag & Drop
-function onWindowDragOver(e) {
-  if (serverInfo.value?.read_only) return
-  dragCounter++
-  isWindowDragging.value = true
-}
-
-function onWindowDragLeave(e) {
-  dragCounter--
-  if (dragCounter <= 0) {
-    isWindowDragging.value = false
-    dragCounter = 0
-  }
-}
-
-function onWindowDrop(e) {
-  isWindowDragging.value = false
-  dragCounter = 0
-  if (serverInfo.value?.read_only) return
-  if (e.dataTransfer?.files?.length > 0) {
-    showUpload.value = true
-  }
-}
-
-// Keyboard shortcuts
+// Coordinated Keyboard Shortcuts
 function handleGlobalKeydown(e) {
-  // Ctrl+K / Cmd+K -> Search
+  // Ctrl+K / Cmd+K -> Search Modal
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
-    showSearch.value = true
+    if (activeModal.value === MODAL_STATES.SEARCH) {
+      closeModal()
+    } else {
+      openModal(MODAL_STATES.SEARCH)
+    }
     return
   }
 
-  // If typing in input, ignore file shortcuts
-  if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+  // Escape -> Dismiss active drag overlay or top-level modal
+  if (e.key === 'Escape') {
+    if (dragState.value === DRAG_STATES.DRAGGING) {
+      resetDragState()
+      return
+    }
+    if (activeModal.value !== MODAL_STATES.NONE) {
+      e.preventDefault()
+      closeModal()
+      return
+    }
+  }
+
+  // When any modal is open or user is typing in an input, block background workspace shortcuts
+  if (activeModal.value !== MODAL_STATES.NONE) {
+    return
+  }
+
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
     return
   }
 
   // Space -> QuickLook preview
   if (e.code === 'Space') {
-    if (selectedItem.value && !selectedItem.value.is_dir && !previewItem.value) {
+    if (selectedItem.value && !selectedItem.value.is_dir) {
       e.preventDefault()
       openPreview(selectedItem.value)
     }
   }
 
   // Backspace -> Parent directory
-  if (e.key === 'Backspace' && !previewItem.value && !showSearch.value && !showUpload.value) {
+  if (e.key === 'Backspace') {
     if (currentPath.value !== '/') {
       e.preventDefault()
       navigateTo(parentPath.value)
@@ -380,29 +541,28 @@ function handleGlobalKeydown(e) {
   }
 }
 
+function handleHashChange() {
+  const hashPath = decodeURI(window.location.hash.slice(1)) || '/'
+  if (hashPath !== currentPath.value) {
+    loadDirectory(hashPath)
+  }
+}
+
+function handleStorageChange(e) {
+  if (e.key === 'awdex-theme') {
+    applyTheme(e.newValue !== 'light')
+  }
+}
+
 onMounted(async () => {
   applyTheme(isDark.value)
   window.addEventListener('keydown', handleGlobalKeydown)
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'awdex-theme') {
-      applyTheme(e.newValue !== 'light')
-    }
-  })
+  window.addEventListener('hashchange', handleHashChange)
+  window.addEventListener('storage', handleStorageChange)
+  window.addEventListener('blur', resetDragState)
+  window.addEventListener('dragend', resetDragState)
 
-  // Listen to hash changes for browser back/forward buttons
-  window.addEventListener('hashchange', () => {
-    const hashPath = decodeURI(window.location.hash.slice(1)) || '/'
-    if (hashPath !== currentPath.value) {
-      loadDirectory(hashPath)
-    }
-  })
-
-  // Load server info
-  try {
-    serverInfo.value = await fetchInfo()
-  } catch (err) {
-    console.error('Failed to load server info:', err)
-  }
+  refreshServerInfo()
 
   // Initial path from hash or root
   const initialPath = decodeURI(window.location.hash.slice(1)) || '/'
@@ -411,6 +571,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('hashchange', handleHashChange)
+  window.removeEventListener('storage', handleStorageChange)
+  window.removeEventListener('blur', resetDragState)
+  window.removeEventListener('dragend', resetDragState)
 })
 </script>
 
@@ -467,15 +631,72 @@ onUnmounted(() => {
   padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
 }
 
-.content-loading {
+.content-loading,
+.content-error {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
+  padding: 24px;
   gap: 12px;
   color: var(--text-muted);
   font-size: 14px;
+  text-align: center;
+}
+
+.error-icon {
+  color: #ef4444;
+  opacity: 0.85;
+}
+
+.error-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.error-desc {
+  font-size: 13px;
+  color: var(--text-subtle);
+  max-width: 420px;
+  margin: 0;
+}
+
+.error-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.error-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.error-btn:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.error-btn.primary {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.error-btn.primary:hover {
+  background-color: var(--primary-hover);
 }
 
 .spinner {

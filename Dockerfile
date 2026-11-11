@@ -31,7 +31,8 @@ COPY web/embed.go web/
 COPY --from=frontend-builder /app/web/dist web/dist
 
 # Build fully static binary
-RUN go build -ldflags="-s -w -X main.version=1.0.0" -o /app/bin/awdex ./cmd/awdex
+ARG VERSION=1.1.0
+RUN go build -ldflags="-s -w -X main.version=${VERSION}" -o /app/bin/awdex ./cmd/awdex
 
 # ==========================================
 # Stage 3: Minimal Production Image

@@ -210,7 +210,10 @@ func (s *Server) handlePublicShare(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if subAction == "download" {
-			s.shares.IncrementDownload(link.ID)
+			if _, claimed := s.shares.ClaimDownload(link.ID); !claimed {
+				s.renderShareErrorPage(w, http.StatusGone, "Download Limit Reached", "This shared link has reached its maximum allowed downloads.")
+				return
+			}
 		}
 		f, err := os.Open(fullPath)
 		if err != nil {
@@ -252,7 +255,10 @@ func (s *Server) handlePublicShare(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		s.shares.IncrementDownload(link.ID)
+		if _, claimed := s.shares.ClaimDownload(link.ID); !claimed {
+			s.renderShareErrorPage(w, http.StatusGone, "Download Limit Reached", "This shared link has reached its maximum allowed downloads.")
+			return
+		}
 		cf, err := os.Open(childFull)
 		if err != nil {
 			http.Error(w, "Cannot open file", http.StatusInternalServerError)
@@ -270,7 +276,10 @@ func (s *Server) handlePublicShare(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveSharedFolderZip(w http.ResponseWriter, r *http.Request, link *share.ShareLink, folderPath string) {
-	s.shares.IncrementDownload(link.ID)
+	if _, claimed := s.shares.ClaimDownload(link.ID); !claimed {
+		s.renderShareErrorPage(w, http.StatusGone, "Download Limit Reached", "This shared link has reached its maximum allowed downloads.")
+		return
+	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, link.Name))
 
@@ -323,13 +332,15 @@ func (s *Server) renderShareErrorPage(w http.ResponseWriter, code int, title, ms
   p { color:#94a3b8; font-size:14px; line-height:1.5; margin:0; }
 </style>
 </head>
-<body><div class="card"><h1>%s</h1><p>%s</p></div></body></html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(msg))
+<body data-share-state="error"><div class="card"><h1>%s</h1><p>%s</p></div></body></html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(msg))
 }
 
 func (s *Server) renderSharePasswordPage(w http.ResponseWriter, link *share.ShareLink, failed bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	errBanner := ""
+	authState := "password_required"
 	if failed {
+		authState = "password_failed"
 		errBanner = `<div style="background:rgba(239,68,68,0.15);color:#f87171;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:14px;">Incorrect password. Please try again.</div>`
 	}
 	fmt.Fprintf(w, `<!DOCTYPE html>
@@ -347,7 +358,7 @@ func (s *Server) renderSharePasswordPage(w http.ResponseWriter, link *share.Shar
   button:hover { background:#2563eb; }
 </style>
 </head>
-<body>
+<body data-share-state="%s">
   <form class="card" method="POST" action="/s/%s">
     <h2>Protected Share</h2>
     <p>Enter the password to access <strong>%s</strong></p>
@@ -355,7 +366,7 @@ func (s *Server) renderSharePasswordPage(w http.ResponseWriter, link *share.Shar
     <input type="password" name="password" placeholder="Password" autofocus required />
     <button type="submit">Unlock Share</button>
   </form>
-</body></html>`, html.EscapeString(link.Name), html.EscapeString(link.ID), html.EscapeString(link.Name), errBanner)
+</body></html>`, html.EscapeString(link.Name), authState, html.EscapeString(link.ID), html.EscapeString(link.Name), errBanner)
 }
 
 func (s *Server) renderShareLandingPage(w http.ResponseWriter, link *share.ShareLink, fullPath string, fi os.FileInfo) {
@@ -446,7 +457,7 @@ func (s *Server) renderShareLandingPage(w http.ResponseWriter, link *share.Share
   .fbtn:hover { background:#3b82f6; }
 </style>
 </head>
-<body>
+<body data-share-state="ready">
   <div class="share-card">
     <div class="share-header">
       <div class="title-group">

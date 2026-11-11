@@ -104,7 +104,7 @@ func (p *postgresDB) UpsertBatch(ctx context.Context, items []*model.FileItem) e
 	}
 	defer stmt.Close()
 
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	for _, it := range items {
 		_, err := stmt.ExecContext(ctx,
 			it.Path,
@@ -135,6 +135,15 @@ func (p *postgresDB) DeleteDirPrefix(ctx context.Context, dirPath string) error 
 	prefix := strings.TrimSuffix(dirPath, "/") + "/%"
 	_, err := p.db.ExecContext(ctx, "DELETE FROM awdex_files WHERE path = $1 OR path LIKE $2", dirPath, prefix)
 	return err
+}
+
+func (p *postgresDB) PruneStale(ctx context.Context, beforeUnixMilli int64) (int64, error) {
+	res, err := p.db.ExecContext(ctx, "DELETE FROM awdex_files WHERE indexed_at < $1", beforeUnixMilli)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (p *postgresDB) Search(ctx context.Context, req model.SearchRequest) ([]*model.FileItem, int64, error) {

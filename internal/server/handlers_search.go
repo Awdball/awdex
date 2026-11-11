@@ -53,18 +53,23 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// Version is the current semantic version of awdex, overridable at build time.
+var Version = "1.1.0"
+
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	totalFiles, totalDirs, totalBytes, _ := s.database.GetStats(r.Context())
+	idxStatus := s.indexer.Status()
 
 	info := model.ServerInfo{
 		Title:          s.cfg.Title,
-		Version:        "1.0.0",
+		Version:        Version,
 		ReadOnly:       s.cfg.ReadOnly,
 		DatabaseType:   s.database.Type(),
 		IndexedFiles:   totalFiles,
 		IndexedDirs:    totalDirs,
 		IndexedBytes:   totalBytes,
-		IndexState:     s.indexer.State(),
+		IndexState:     idxStatus.State,
+		IndexStatus:    &idxStatus,
 		FFmpegPresent:  s.thumbs.HasFFmpeg(),
 		PopplerPresent: s.thumbs.HasPoppler(),
 	}

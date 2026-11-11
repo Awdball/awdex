@@ -1,9 +1,9 @@
 <template>
-  <div class="modal-backdrop" @click.self="$emit('close')">
-    <div class="modal-card animate-fade-in">
+  <div class="modal-backdrop" @click.self="handleClose">
+    <div class="modal-card animate-fade-in" :data-upload-state="uploadState">
       <div class="modal-header">
         <h3 class="modal-title">Upload to {{ currentPath }}</h3>
-        <button class="modal-close-btn" @click="$emit('close')">
+        <button class="modal-close-btn" @click="handleClose">
           <X :size="18" />
         </button>
       </div>
@@ -33,14 +33,19 @@
         <!-- Selected Files List -->
         <div v-if="files.length > 0" class="file-queue-list">
           <div class="queue-header">
-            <span>{{ files.length }} files selected ({{ formatBytes(totalBytes) }})</span>
-            <button v-if="!uploading" class="clear-btn" @click="files = []">Clear</button>
+            <span>{{ files.length }} {{ files.length === 1 ? 'file' : 'files' }} selected ({{ formatBytes(totalBytes) }})</span>
+            <button v-if="!uploading" class="clear-btn" @click="clearQueue">Clear</button>
           </div>
 
           <div class="queue-items">
-            <div v-for="(f, idx) in files" :key="idx" class="queue-item">
+            <div v-for="(f, idx) in files" :key="`${f.name}-${f.size}-${idx}`" class="queue-item">
               <span class="file-name" :title="f.name">{{ f.name }}</span>
-              <span class="file-size">{{ formatBytes(f.size) }}</span>
+              <div class="queue-item-right">
+                <span class="file-size">{{ formatBytes(f.size) }}</span>
+                <button v-if="!uploading" class="remove-file-btn" @click="removeFile(idx)" title="Remove from queue">
+                  <X :size="13" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -59,8 +64,8 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-secondary" @click="$emit('close')" :disabled="uploading">
-          Cancel
+        <button class="btn btn-secondary" @click="handleClose">
+          {{ uploading ? 'Abort Upload' : 'Cancel' }}
         </button>
         <button 
           class="btn btn-primary" 
@@ -75,13 +80,18 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { X, UploadCloud } from '@lucide/vue'
 import { formatBytes } from '../utils/formatters.js'
 import { uploadFiles } from '../utils/api.js'
+import { UPLOAD_STATES, syncAgentState } from '../utils/stateMachines.js'
 
 const props = defineProps({
-  currentPath: String
+  currentPath: String,
+  initialFiles: {
+    type: Array,
+    default: () => []
+  }
 })
 
 const emit = defineEmits(['close', 'uploaded'])
@@ -89,9 +99,17 @@ const emit = defineEmits(['close', 'uploaded'])
 const fileInputRef = ref(null)
 const files = ref([])
 const isDragging = ref(false)
-const uploading = ref(false)
+const uploadState = ref(UPLOAD_STATES.IDLE)
 const progress = ref(0)
 const errorMessage = ref('')
+let abortUploadFn = null
+
+const uploading = computed(() => uploadState.value === UPLOAD_STATES.UPLOADING)
+
+function setUploadState(next) {
+  uploadState.value = next
+  syncAgentState({ uploadState: next })
+}
 
 const totalBytes = computed(() => {
   return files.value.reduce((acc, f) => acc + f.size, 0)
@@ -106,6 +124,7 @@ function triggerFileInput() {
 function onFileSelected(e) {
   if (e.target.files) {
     addFiles(Array.from(e.target.files))
+    e.target.value = ''
   }
 }
 
@@ -117,27 +136,77 @@ function onDrop(e) {
 }
 
 function addFiles(newFiles) {
-  files.value = [...files.value, ...newFiles]
+  if (!newFiles || newFiles.length === 0) return
+  const existingKeys = new Set(files.value.map(f => `${f.name}:${f.size}:${f.lastModified}`))
+  const deduped = newFiles.filter(f => !existingKeys.has(`${f.name}:${f.size}:${f.lastModified}`))
+  files.value = [...files.value, ...deduped]
+  errorMessage.value = ''
+  if (files.value.length > 0 && uploadState.value !== UPLOAD_STATES.UPLOADING) {
+    setUploadState(UPLOAD_STATES.QUEUED)
+  }
 }
+
+function removeFile(idx) {
+  files.value.splice(idx, 1)
+  if (files.value.length === 0) {
+    setUploadState(UPLOAD_STATES.IDLE)
+  }
+}
+
+function clearQueue() {
+  files.value = []
+  errorMessage.value = ''
+  setUploadState(UPLOAD_STATES.IDLE)
+}
+
+function handleClose() {
+  if (uploading.value && abortUploadFn) {
+    abortUploadFn()
+    abortUploadFn = null
+  }
+  emit('close')
+}
+
+watch(() => props.initialFiles, (init) => {
+  if (init && init.length > 0) {
+    addFiles(init)
+  }
+}, { immediate: true })
 
 async function startUpload() {
   if (files.value.length === 0 || uploading.value) return
-  uploading.value = true
+  setUploadState(UPLOAD_STATES.UPLOADING)
   progress.value = 0
   errorMessage.value = ''
 
   try {
-    await uploadFiles(props.currentPath, files.value, (percent) => {
-      progress.value = percent
-    })
+    await uploadFiles(
+      props.currentPath,
+      files.value,
+      (percent) => {
+        progress.value = percent
+      },
+      (abortFn) => {
+        abortUploadFn = abortFn
+      }
+    )
+    setUploadState(UPLOAD_STATES.COMPLETED)
     emit('uploaded')
     emit('close')
   } catch (err) {
     errorMessage.value = err.message || 'Upload failed'
+    setUploadState(UPLOAD_STATES.ERROR)
   } finally {
-    uploading.value = false
+    abortUploadFn = null
   }
 }
+
+onUnmounted(() => {
+  if (abortUploadFn) {
+    abortUploadFn()
+  }
+  syncAgentState({ uploadState: UPLOAD_STATES.IDLE })
+})
 </script>
 
 <style scoped>
@@ -271,15 +340,34 @@ async function startUpload() {
 .queue-item {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 12px;
   color: var(--text-main);
+  gap: 8px;
+}
+
+.queue-item-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.remove-file-btn {
+  color: var(--text-subtle);
+  padding: 2px;
+  border-radius: 3px;
+}
+.remove-file-btn:hover {
+  color: #ef4444;
+  background-color: var(--bg-surface-hover);
 }
 
 .file-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 320px;
+  max-width: 300px;
 }
 
 .file-size {

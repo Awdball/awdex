@@ -135,6 +135,9 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.indexer != nil {
+		s.indexer.Stop()
+	}
 	s.shares.StopTunnel()
 	if s.shareServer != nil {
 		_ = s.shareServer.Shutdown(ctx)

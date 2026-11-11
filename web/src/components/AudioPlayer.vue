@@ -1,11 +1,16 @@
 <template>
-  <div v-if="track" class="audio-dock-player animate-slide-down">
+  <div v-if="track" class="audio-dock-player animate-slide-down" :data-player-state="playerState" :data-shuffle="isShuffle">
     <!-- Hidden Native Audio Element -->
     <audio 
       ref="audioRef" 
       :src="'/raw' + encodePath(track.path)" 
       @timeupdate="onTimeUpdate"
       @loadedmetadata="onLoadedMetadata"
+      @play="onNativePlay"
+      @playing="onNativePlaying"
+      @pause="onNativePause"
+      @waiting="onNativeWaiting"
+      @error="onNativeError"
       @ended="onEnded"
       autoplay
     ></audio>
@@ -13,12 +18,15 @@
     <!-- Track Info -->
     <div class="dock-left">
       <div class="dock-thumb">
-        <img v-if="track.has_thumb" :src="track.thumb_url" alt="" class="dock-thumb-img" />
+        <img v-if="track.has_thumb && !thumbFailed" :src="track.thumb_url" alt="" class="dock-thumb-img" @error="thumbFailed = true" />
         <Music v-else :size="20" class="dock-placeholder" />
       </div>
       <div class="dock-info">
         <span class="dock-title" :title="track.name">{{ track.name }}</span>
-        <span class="dock-artist">{{ formatBytes(track.size) }}</span>
+        <span class="dock-artist">
+          <template v-if="playerState === AUDIO_STATES.ERROR">Playback error</template>
+          <template v-else>{{ formatBytes(track.size) }}</template>
+        </span>
       </div>
     </div>
 
@@ -35,7 +43,7 @@
           <Pause v-if="isPlaying" :size="18" />
           <Play v-else :size="18" />
         </button>
-        <button class="dock-btn" @click="$emit('next')" title="Next Track">
+        <button class="dock-btn" @click="emitNext" title="Next Track">
           <SkipForward :size="17" />
         </button>
         <button class="dock-btn hide-mobile" :class="{ 'is-active': isLoop }" @click="isLoop = !isLoop" title="Repeat Track">
@@ -83,12 +91,13 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { 
   Play, Pause, SkipBack, SkipForward, Repeat, Shuffle, 
   Volume2, VolumeX, Music, X 
 } from '@lucide/vue'
 import { formatBytes, encodePath } from '../utils/formatters.js'
+import { AUDIO_STATES, syncAgentState } from '../utils/stateMachines.js'
 
 const props = defineProps({
   track: Object
@@ -97,7 +106,8 @@ const props = defineProps({
 const emit = defineEmits(['close', 'next', 'prev'])
 
 const audioRef = ref(null)
-const isPlaying = ref(true)
+const playerState = ref(AUDIO_STATES.LOADING)
+const thumbFailed = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 const volume = ref(0.8)
@@ -105,15 +115,44 @@ const prevVolume = ref(0.8)
 const isLoop = ref(false)
 const isShuffle = ref(false)
 
+const isPlaying = computed(() => playerState.value === AUDIO_STATES.PLAYING)
+
+function setPlayerState(next) {
+  playerState.value = next
+  syncAgentState({ audioState: next })
+}
+
 function togglePlay() {
   if (!audioRef.value) return
-  if (isPlaying.value) {
-    audioRef.value.pause()
-    isPlaying.value = false
+  if (audioRef.value.paused) {
+    audioRef.value.play().catch(() => {
+      setPlayerState(AUDIO_STATES.PAUSED)
+    })
   } else {
-    audioRef.value.play()
-    isPlaying.value = true
+    audioRef.value.pause()
   }
+}
+
+function onNativePlay() {
+  setPlayerState(AUDIO_STATES.PLAYING)
+}
+
+function onNativePlaying() {
+  setPlayerState(AUDIO_STATES.PLAYING)
+}
+
+function onNativePause() {
+  if (audioRef.value && !audioRef.value.ended) {
+    setPlayerState(AUDIO_STATES.PAUSED)
+  }
+}
+
+function onNativeWaiting() {
+  setPlayerState(AUDIO_STATES.LOADING)
+}
+
+function onNativeError() {
+  setPlayerState(AUDIO_STATES.ERROR)
 }
 
 function onTimeUpdate() {
@@ -127,11 +166,15 @@ function onLoadedMetadata() {
     duration.value = audioRef.value.duration
     audioRef.value.volume = volume.value
     audioRef.value.play().then(() => {
-      isPlaying.value = true
+      setPlayerState(AUDIO_STATES.PLAYING)
     }).catch(() => {
-      isPlaying.value = false
+      setPlayerState(AUDIO_STATES.PAUSED)
     })
   }
+}
+
+function emitNext() {
+  emit('next', { shuffle: isShuffle.value })
 }
 
 function onEnded() {
@@ -141,7 +184,7 @@ function onEnded() {
       audioRef.value.play()
     }
   } else {
-    emit('next')
+    emitNext()
   }
 }
 
@@ -178,8 +221,10 @@ function formatTime(secs) {
 
 watch(() => props.track?.path, () => {
   currentTime.value = 0
-  isPlaying.value = true
-})
+  duration.value = 0
+  thumbFailed.value = false
+  setPlayerState(AUDIO_STATES.LOADING)
+}, { immediate: true })
 </script>
 
 <style scoped>

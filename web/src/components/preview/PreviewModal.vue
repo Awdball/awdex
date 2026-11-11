@@ -1,12 +1,17 @@
 <template>
   <div v-if="item" class="preview-backdrop" @click.self="$emit('close')">
-    <div class="preview-container" :class="item.category">
+    <div 
+      class="preview-container" 
+      :class="item.category"
+      :data-preview-state="contentState"
+      :data-video-state="item.category === 'video' ? videoState : undefined"
+    >
       <!-- Header Bar -->
       <div class="preview-header">
         <div class="header-left">
           <span class="preview-filename" :title="item.name">{{ item.name }}</span>
           <span class="preview-filesize">{{ formatBytes(item.size) }}</span>
-          <span v-if="isTranscoding" class="transcode-pill">Transcoding (H.264)</span>
+          <span v-if="item.category === 'video' && isTranscoding" class="transcode-pill">Transcoding (H.264)</span>
         </div>
 
         <div class="header-right">
@@ -45,7 +50,7 @@
 
           <!-- Copy code button -->
           <button 
-            v-if="textContent" 
+            v-if="textContent && contentState === CONTENT_STATES.READY" 
             class="header-btn" 
             @click="copyText"
             :title="copied ? 'Copied!' : 'Copy to Clipboard'"
@@ -86,12 +91,24 @@
             <ChevronLeft :size="28" />
           </button>
 
-          <div class="image-stage" @wheel.prevent="onWheel">
+          <div v-if="contentState === CONTENT_STATES.ERROR" class="binary-card">
+            <AlertCircle :size="48" class="binary-icon" />
+            <h3 class="binary-name">Unable to render image</h3>
+            <p class="binary-desc">{{ item.name }} ({{ formatBytes(item.size) }})</p>
+            <a :href="'/raw' + encodePath(item.path) + '?download=1'" class="btn btn-primary binary-download-btn" download>
+              <Download :size="16" />
+              <span>Download Image</span>
+            </a>
+          </div>
+
+          <div v-else class="image-stage" @wheel.prevent="onWheel">
             <img 
               :src="'/raw' + encodePath(item.path)" 
               class="preview-img" 
               :style="{ transform: `scale(${zoom}) rotate(${rotation}deg)` }"
               alt=""
+              @load="setContentState(CONTENT_STATES.READY)"
+              @error="setContentState(CONTENT_STATES.ERROR)"
             />
           </div>
 
@@ -102,13 +119,30 @@
 
         <!-- 2. VIDEO PLAYER -->
         <div v-else-if="item.category === 'video'" class="video-viewer">
+          <div v-if="videoState === VIDEO_STATES.ERROR" class="binary-card">
+            <AlertCircle :size="48" class="binary-icon" />
+            <h3 class="binary-name">Video playback unavailable</h3>
+            <p class="binary-desc">Neither direct browser decoding nor FFmpeg live transcoding succeeded for this stream.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:8px;">
+              <button class="btn" style="border:1px solid var(--border-subtle);background:var(--bg-app);color:var(--text-main);" @click="retryVideoDirect">
+                Retry Direct Stream
+              </button>
+              <a :href="'/raw' + encodePath(item.path) + '?download=1'" class="btn btn-primary" download>
+                <Download :size="16" />
+                <span>Download Video</span>
+              </a>
+            </div>
+          </div>
+
           <video 
+            v-else
             ref="videoRef" 
             controls 
             autoplay 
             playsinline 
             class="preview-video"
             :src="videoSrc"
+            @loadeddata="setContentState(CONTENT_STATES.READY)"
             @error="onVideoError"
           >
             Your browser does not support the video tag.
@@ -132,12 +166,16 @@
 
         <!-- 4. PDF VIEWER -->
         <div v-else-if="item.extension === '.pdf'" class="pdf-viewer">
-          <iframe :src="'/raw' + encodePath(item.path)" class="pdf-iframe"></iframe>
+          <iframe :src="'/raw' + encodePath(item.path)" class="pdf-iframe" @load="setContentState(CONTENT_STATES.READY)"></iframe>
         </div>
 
         <!-- 5. CODE / TEXT VIEWER -->
         <div v-else-if="item.category === 'code' || item.category === 'text'" class="text-viewer">
-          <div v-if="loadingText" class="loading-spinner">Loading text...</div>
+          <div v-if="contentState === CONTENT_STATES.LOADING" class="loading-spinner">Loading text...</div>
+
+          <div v-else-if="contentState === CONTENT_STATES.ERROR" class="loading-spinner">
+            {{ contentError || 'Failed to load file contents.' }}
+          </div>
           
           <!-- Rendered Markdown -->
           <div 
@@ -152,7 +190,8 @@
 
         <!-- 6. ZIP ARCHIVE INSPECTOR -->
         <div v-else-if="item.category === 'archive' && item.extension === '.zip'" class="archive-viewer">
-          <div v-if="loadingArchive" class="loading-spinner">Reading archive table of contents...</div>
+          <div v-if="contentState === CONTENT_STATES.LOADING" class="loading-spinner">Reading archive table of contents...</div>
+          <div v-else-if="contentState === CONTENT_STATES.ERROR" class="loading-spinner">{{ contentError || 'Failed to inspect archive.' }}</div>
           <table v-else class="archive-table">
             <thead>
               <tr>
@@ -195,10 +234,11 @@ import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { 
   X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2, 
   ChevronLeft, ChevronRight, Copy, Check, WrapText, BookOpen, 
-  Music, File, Folder, Sliders 
+  Music, File, Folder, Sliders, AlertCircle
 } from '@lucide/vue'
 import { formatBytes, encodePath } from '../../utils/formatters.js'
 import { inspectArchive } from '../../utils/api.js'
+import { VIDEO_STATES, CONTENT_STATES, syncAgentState } from '../../utils/stateMachines.js'
 import hljs from 'highlight.js'
 import { marked } from 'marked'
 
@@ -209,6 +249,17 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'prev', 'next'])
+
+// Preview Content State Machine
+const contentState = ref(CONTENT_STATES.IDLE)
+const contentError = ref('')
+let loadSeq = 0
+
+function setContentState(next, err = '') {
+  contentState.value = next
+  contentError.value = err
+  syncAgentState({ previewState: next })
+}
 
 // Image state
 const zoom = ref(1)
@@ -238,8 +289,13 @@ function onTouchEnd(e) {
   }
 }
 
-// Video state
-const forceTranscode = ref(false)
+// Video Playback Fallback State Machine: 'direct' -> 'transcoding' -> 'error'
+const videoState = ref(VIDEO_STATES.DIRECT)
+
+function setVideoState(next) {
+  videoState.value = next
+  syncAgentState({ videoState: next })
+}
 
 const isNonNativeVideo = computed(() => {
   const ext = props.item?.extension?.toLowerCase()
@@ -247,47 +303,49 @@ const isNonNativeVideo = computed(() => {
 })
 
 const isTranscoding = computed(() => {
-  return isNonNativeVideo.value || forceTranscode.value
+  return videoState.value === VIDEO_STATES.TRANSCODING
 })
 
 const videoSrc = computed(() => {
   if (!props.item) return ''
-  if (isTranscoding.value) {
+  if (videoState.value === VIDEO_STATES.TRANSCODING) {
     return '/api/transcode?path=' + encodeURIComponent(props.item.path)
   }
   return '/raw' + encodePath(props.item.path)
 })
 
 function toggleTranscode() {
-  forceTranscode.value = !isTranscoding.value
+  if (videoState.value === VIDEO_STATES.TRANSCODING) {
+    setVideoState(VIDEO_STATES.DIRECT)
+  } else {
+    setVideoState(VIDEO_STATES.TRANSCODING)
+  }
 }
 
-function isNativeVideoFormat(ext) {
-  const e = (ext || '').toLowerCase()
-  return ['.mp4', '.m4v', '.webm', '.mov', '.ogg', '.ogv'].includes(e)
+function retryVideoDirect() {
+  setVideoState(VIDEO_STATES.DIRECT)
+  setContentState(CONTENT_STATES.LOADING)
 }
 
 function onVideoError() {
-  if (!isTranscoding.value) {
-    if (!isNativeVideoFormat(props.item?.extension)) {
-      console.log('Direct video playback failed for non-native video, falling back to FFmpeg transcode')
-      forceTranscode.value = true
-    } else {
-      console.warn('Direct video playback error encountered on native format')
-    }
+  if (videoState.value === VIDEO_STATES.DIRECT) {
+    // Any direct playback failure (including .mp4/.mkv/.mov with unsupported HEVC/AC3 codecs)
+    // automatically transitions once to FFmpeg live transcoding.
+    setVideoState(VIDEO_STATES.TRANSCODING)
+  } else if (videoState.value === VIDEO_STATES.TRANSCODING) {
+    setVideoState(VIDEO_STATES.ERROR)
+    setContentState(CONTENT_STATES.ERROR, 'Video stream failed')
   }
 }
 
 // Text/Code state
 const textContent = ref('')
-const loadingText = ref(false)
 const wrapText = ref(true)
 const renderMarkdown = ref(true)
 const copied = ref(false)
 
 // Archive state
 const archiveEntries = ref([])
-const loadingArchive = ref(false)
 
 const isMarkdown = computed(() => {
   return props.item?.extension === '.md' || props.item?.extension === '.markdown'
@@ -332,28 +390,50 @@ async function copyText() {
 
 async function loadContent() {
   if (!props.item) return
+  const seq = ++loadSeq
   resetImage()
-  forceTranscode.value = false
+  textContent.value = ''
+  archiveEntries.value = []
+
+  if (props.item.category === 'video') {
+    setVideoState(isNonNativeVideo.value ? VIDEO_STATES.TRANSCODING : VIDEO_STATES.DIRECT)
+    setContentState(CONTENT_STATES.LOADING)
+    return
+  }
+
+  setVideoState(null)
 
   if (props.item.category === 'code' || props.item.category === 'text') {
-    loadingText.value = true
+    setContentState(CONTENT_STATES.LOADING)
     try {
       const res = await fetch('/raw' + encodePath(props.item.path))
-      textContent.value = await res.text()
+      if (!res.ok) {
+        throw new Error((await res.text()).trim() || `HTTP ${res.status}`)
+      }
+      const txt = await res.text()
+      if (seq !== loadSeq) return
+      textContent.value = txt
+      setContentState(CONTENT_STATES.READY)
     } catch (err) {
-      textContent.value = 'Failed to load file contents: ' + err.message
-    } finally {
-      loadingText.value = false
+      if (seq !== loadSeq) return
+      setContentState(CONTENT_STATES.ERROR, 'Failed to load file contents: ' + err.message)
     }
   } else if (props.item.category === 'archive' && props.item.extension === '.zip') {
-    loadingArchive.value = true
+    setContentState(CONTENT_STATES.LOADING)
     try {
-      archiveEntries.value = await inspectArchive(props.item.path)
+      const entries = await inspectArchive(props.item.path)
+      if (seq !== loadSeq) return
+      archiveEntries.value = entries || []
+      setContentState(CONTENT_STATES.READY)
     } catch (err) {
+      if (seq !== loadSeq) return
       console.error('Failed to inspect zip:', err)
-    } finally {
-      loadingArchive.value = false
+      setContentState(CONTENT_STATES.ERROR, 'Failed to inspect archive: ' + err.message)
     }
+  } else if (props.item.category === 'image' || props.item.extension === '.pdf') {
+    setContentState(CONTENT_STATES.LOADING)
+  } else {
+    setContentState(CONTENT_STATES.READY)
   }
 }
 
@@ -362,9 +442,13 @@ watch(() => props.item?.path, () => {
 }, { immediate: true })
 
 function handleKeyDown(e) {
-  if (e.key === 'Escape') emit('close')
-  if (e.key === 'ArrowLeft' && props.hasPrev) emit('prev')
-  if (e.key === 'ArrowRight' && props.hasNext) emit('next')
+  if (e.key === 'ArrowLeft' && props.hasPrev) {
+    e.preventDefault()
+    emit('prev')
+  } else if (e.key === 'ArrowRight' && props.hasNext) {
+    e.preventDefault()
+    emit('next')
+  }
 }
 
 onMounted(() => {
@@ -373,6 +457,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
+  syncAgentState({ previewState: CONTENT_STATES.IDLE, videoState: null })
 })
 </script>
 
@@ -631,6 +716,12 @@ onUnmounted(() => {
   word-break: break-word;
 }
 
+.loading-spinner {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
 /* Markdown Content */
 .markdown-content {
   font-family: var(--font-sans);
@@ -742,6 +833,22 @@ onUnmounted(() => {
 }
 .binary-download-btn {
   margin-top: 8px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn-primary {
+  background-color: var(--primary);
+  color: #ffffff;
 }
 
 @media (max-width: 768px) {

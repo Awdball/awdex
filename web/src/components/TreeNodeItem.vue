@@ -1,5 +1,5 @@
 <template>
-  <div class="tree-node-wrapper">
+  <div class="tree-node-wrapper" :data-tree-state="nodeState" :data-tree-path="node.path">
     <div 
       class="tree-node-row" 
       :class="{ 'is-selected': currentPath === node.path }"
@@ -9,7 +9,8 @@
       <button 
         v-if="node.has_children" 
         class="toggle-chevron" 
-        :class="{ 'is-expanded': isExpanded }"
+        :class="{ 'is-expanded': isExpanded, 'is-loading': nodeState === TREE_NODE_STATES.LOADING }"
+        :disabled="nodeState === TREE_NODE_STATES.LOADING"
         @click.stop="toggleExpand"
       >
         <ChevronRight :size="14" />
@@ -41,9 +42,10 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ChevronRight, Folder, FolderOpen } from '@lucide/vue'
 import { fetchTree } from '../utils/api.js'
+import { TREE_NODE_STATES } from '../utils/stateMachines.js'
 
 const props = defineProps({
   node: Object,
@@ -52,29 +54,45 @@ const props = defineProps({
 
 defineEmits(['navigate'])
 
-const isExpanded = ref(false)
+const nodeState = ref(TREE_NODE_STATES.COLLAPSED)
 const children = ref([])
 const loaded = ref(false)
 
+const isExpanded = computed(() => nodeState.value === TREE_NODE_STATES.EXPANDED)
+
 async function toggleExpand() {
-  if (!isExpanded.value) {
+  // Single-flight guard: ignore concurrent expand calls while loading
+  if (nodeState.value === TREE_NODE_STATES.LOADING) {
+    return
+  }
+
+  if (nodeState.value !== TREE_NODE_STATES.EXPANDED) {
     if (!loaded.value) {
+      nodeState.value = TREE_NODE_STATES.LOADING
       try {
         children.value = await fetchTree(props.node.path)
         loaded.value = true
+        nodeState.value = TREE_NODE_STATES.EXPANDED
       } catch (err) {
         console.error('Failed to load sub tree:', err)
+        nodeState.value = TREE_NODE_STATES.ERROR
       }
+    } else {
+      nodeState.value = TREE_NODE_STATES.EXPANDED
     }
-    isExpanded.value = true
   } else {
-    isExpanded.value = false
+    nodeState.value = TREE_NODE_STATES.COLLAPSED
   }
 }
 
 // Auto-expand if currentPath is a child of this node
 watch(() => props.currentPath, (newVal) => {
-  if (newVal && newVal.startsWith(props.node.path + '/') && !isExpanded.value) {
+  if (
+    newVal &&
+    newVal.startsWith(props.node.path + '/') &&
+    nodeState.value !== TREE_NODE_STATES.EXPANDED &&
+    nodeState.value !== TREE_NODE_STATES.LOADING
+  ) {
     toggleExpand()
   }
 }, { immediate: true })
@@ -125,6 +143,10 @@ watch(() => props.currentPath, (newVal) => {
 }
 .toggle-chevron.is-expanded {
   transform: rotate(90deg);
+}
+.toggle-chevron.is-loading {
+  opacity: 0.5;
+  cursor: wait;
 }
 
 .chevron-placeholder {

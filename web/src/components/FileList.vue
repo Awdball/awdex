@@ -1,5 +1,10 @@
 <template>
-  <div class="file-list-container">
+  <div 
+    class="file-list-container"
+    :data-view-mode="viewMode"
+    :data-state="filteredItems.length === 0 ? 'empty' : 'ready'"
+    :data-item-count="filteredItems.length"
+  >
     <!-- Filter bar & directory stats -->
     <div class="list-toolbar">
       <div class="quick-filter-wrapper">
@@ -9,7 +14,7 @@
           v-model="filterQuery" 
           placeholder="Filter in folder... (Esc to clear)" 
           class="quick-filter-input"
-          @keydown.esc="filterQuery = ''"
+          @keydown.esc.stop="filterQuery = ''"
         />
         <span v-if="filterQuery" class="filter-count">
           {{ filteredItems.length }} / {{ items.length }}
@@ -83,6 +88,8 @@
             :key="item.path" 
             class="table-row" 
             :class="{ 'is-selected': selectedItem?.path === item.path }"
+            :data-item-path="item.path"
+            :data-item-category="item.category"
             @click="handleItemClick(item)"
           >
             <td class="td-name">
@@ -175,6 +182,8 @@
         :key="item.path" 
         class="grid-card" 
         :class="{ 'is-selected': selectedItem?.path === item.path }"
+        :data-item-path="item.path"
+        :data-item-category="item.category"
         @click="handleItemClick(item)"
         @mouseenter="hoverItem = item"
         @mouseleave="hoverItem = null"
@@ -254,6 +263,8 @@
         :key="item.path" 
         class="icon-item" 
         :class="{ 'is-selected': selectedItem?.path === item.path }"
+        :data-item-path="item.path"
+        :data-item-category="item.category"
         @click="handleItemClick(item)"
       >
         <component :is="getItemIcon(item)" :size="28" class="icon-symbol" :style="{ color: getItemColor(item) }" />
@@ -267,7 +278,7 @@
 import { ref, computed, watch } from 'vue'
 import { 
   Filter, CornerLeftUp, Download, Eye, Trash2, Play, Music, Share2,
-  Folder, FolderArchive, FileText, FileCode, FileSpreadsheet, 
+  Folder, FolderArchive, FileText, FileCode,
   FileImage, FileVideo, FileAudio, File, Archive
 } from '@lucide/vue'
 import { formatBytes, formatDate, getCategoryBadgeColor, encodePath } from '../utils/formatters.js'
@@ -282,6 +293,10 @@ const props = defineProps({
   viewMode: {
     type: String,
     default: 'details'
+  },
+  browseState: {
+    type: String,
+    default: 'ready'
   },
   readOnly: Boolean,
   totalDirs: Number,
@@ -341,7 +356,14 @@ const filteredItems = computed(() => {
 
 const itemsToShow = ref(100)
 
-watch(() => [props.currentPath, filterQuery.value], () => {
+watch(() => props.currentPath, () => {
+  filterQuery.value = ''
+  selectedItem.value = null
+  hoverItem.value = null
+  itemsToShow.value = 100
+})
+
+watch(() => filterQuery.value, () => {
   itemsToShow.value = 100
 })
 

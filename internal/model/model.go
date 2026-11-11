@@ -66,18 +66,30 @@ type SearchResponse struct {
 	Offset     int         `json:"offset"`
 }
 
+// IndexerStatus represents the explicit state machine snapshot of the background indexer
+type IndexerStatus struct {
+	State          string     `json:"state"`
+	Running        bool       `json:"running"`
+	Generation     uint64     `json:"generation"`
+	ScannedCount   int64      `json:"scanned_count"`
+	LastIndexedAt  *time.Time `json:"last_indexed_at,omitempty"`
+	LastDurationMs int64      `json:"last_duration_ms,omitempty"`
+	LastError      string     `json:"last_error,omitempty"`
+}
+
 // ServerInfo returns system and config statistics
 type ServerInfo struct {
-	Title          string `json:"title"`
-	Version        string `json:"version"`
-	ReadOnly       bool   `json:"read_only"`
-	DatabaseType   string `json:"database_type"`
-	IndexedFiles   int64  `json:"indexed_files"`
-	IndexedDirs    int64  `json:"indexed_dirs"`
-	IndexedBytes   int64  `json:"indexed_bytes"`
-	IndexState     string `json:"index_state"`
-	FFmpegPresent  bool   `json:"ffmpeg_present"`
-	PopplerPresent bool   `json:"poppler_present"`
+	Title          string         `json:"title"`
+	Version        string         `json:"version"`
+	ReadOnly       bool           `json:"read_only"`
+	DatabaseType   string         `json:"database_type"`
+	IndexedFiles   int64          `json:"indexed_files"`
+	IndexedDirs    int64          `json:"indexed_dirs"`
+	IndexedBytes   int64          `json:"indexed_bytes"`
+	IndexState     string         `json:"index_state"`
+	IndexStatus    *IndexerStatus `json:"index_status,omitempty"`
+	FFmpegPresent  bool           `json:"ffmpeg_present"`
+	PopplerPresent bool           `json:"poppler_present"`
 }
 
 // ArchiveEntry represents a file inside an inspected ZIP/tar file

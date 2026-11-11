@@ -1,6 +1,9 @@
 <template>
   <div class="modal-backdrop" @click.self="$emit('close')">
-    <div class="info-modal animate-fade-in">
+    <div
+      class="info-modal animate-fade-in"
+      :data-index-state="info?.index_state || 'unknown'"
+    >
       <div class="modal-header">
         <h3 class="modal-title">System Information</h3>
         <button class="modal-close-btn" @click="$emit('close')">
@@ -46,6 +49,14 @@
           <div class="info-row">
             <span class="info-label">Crawler Status</span>
             <span class="info-value badge-status" :class="info.index_state">{{ info.index_state }}</span>
+          </div>
+          <div v-if="info.index_status?.last_duration_ms" class="info-row">
+            <span class="info-label">Last Crawl Duration</span>
+            <span class="info-value font-mono">{{ info.index_status.last_duration_ms }} ms</span>
+          </div>
+          <div v-if="info.index_status?.last_error" class="info-row">
+            <span class="info-label">Last Crawler Error</span>
+            <span class="info-value text-error">{{ info.index_status.last_error }}</span>
           </div>
         </div>
 
@@ -183,8 +194,10 @@ defineEmits(['close'])
 .badge-status.ready { background: rgba(16, 185, 129, 0.15); color: #10b981; }
 .badge-status.indexing { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
 .badge-status.error { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.badge-status.stopping, .badge-status.idle { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
 
 .font-mono { font-family: var(--font-mono); }
 .text-green { color: #10b981; }
 .text-gray { color: var(--text-subtle); }
+.text-error { color: #ef4444; font-size: 12px; }
 </style>

@@ -17,8 +17,13 @@ import (
 	"github.com/awdball/awdex/web"
 )
 
+var version = "1.1.0"
+
 func main() {
-	log.Println("awdex - modern high-performance file indexer")
+	if version != "" {
+		server.Version = version
+	}
+	log.Printf("awdex v%s - modern high-performance file indexer", server.Version)
 
 	cfg, err := config.LoadConfig()
 	if err != nil {

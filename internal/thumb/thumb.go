@@ -3,6 +3,7 @@ package thumb
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -19,13 +20,34 @@ import (
 	"github.com/disintegration/imaging"
 )
 
+// ErrNoCoverArt indicates an audio file or directory has no embedded/available cover art.
+var ErrNoCoverArt = errors.New("no cover art available")
+
+// jobState represents the explicit state of an in-flight thumbnail/scrub generation job.
+type jobState string
+
+const (
+	jobStateRunning   jobState = "running"
+	jobStateSucceeded jobState = "succeeded"
+	jobStateNoCover   jobState = "no_cover"
+	jobStateFailed    jobState = "failed"
+)
+
+type inflightJob struct {
+	done  chan struct{}
+	state jobState
+	path  string
+	err   error
+}
+
 type Manager struct {
-	cfg            *config.Config
-	thumbDir       string
-	hasFFmpeg      bool
-	hasPoppler     bool
-	inFlight       sync.Map
-	sem            chan struct{}
+	cfg        *config.Config
+	thumbDir   string
+	hasFFmpeg  bool
+	hasPoppler bool
+	inFlight   sync.Map // cacheKey -> *inflightJob
+	noCover    sync.Map // cacheKey -> bool (negative cache for audio/dirs without cover art)
+	sem        chan struct{}
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -71,6 +93,67 @@ func (m *Manager) CanThumbnail(category, ext string) bool {
 	}
 }
 
+// runSingleFlight executes fn once per cacheKey across concurrent callers using an explicit job state machine.
+func (m *Manager) runSingleFlight(cacheKey, cachePath string, fn func(tmpPath string) error) (string, error) {
+	if _, ok := m.noCover.Load(cacheKey); ok {
+		return "", ErrNoCoverArt
+	}
+	if _, err := os.Stat(cachePath); err == nil {
+		return cachePath, nil
+	}
+
+	newJob := &inflightJob{
+		done:  make(chan struct{}),
+		state: jobStateRunning,
+	}
+	actual, loaded := m.inFlight.LoadOrStore(cacheKey, newJob)
+	job := actual.(*inflightJob)
+	if loaded {
+		<-job.done
+		return job.path, job.err
+	}
+
+	defer func() {
+		close(job.done)
+		m.inFlight.Delete(cacheKey)
+	}()
+
+	// Re-check disk cache after acquiring single-flight ownership
+	if _, err := os.Stat(cachePath); err == nil {
+		job.state = jobStateSucceeded
+		job.path = cachePath
+		return cachePath, nil
+	}
+
+	m.sem <- struct{}{}
+	defer func() { <-m.sem }()
+
+	tmpPath := cachePath + ".tmp" + filepath.Ext(cachePath)
+	err := fn(tmpPath)
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		if errors.Is(err, ErrNoCoverArt) {
+			job.state = jobStateNoCover
+			m.noCover.Store(cacheKey, true)
+		} else {
+			job.state = jobStateFailed
+		}
+		job.err = err
+		return "", err
+	}
+
+	if err := os.Rename(tmpPath, cachePath); err != nil {
+		_ = os.Remove(tmpPath)
+		job.state = jobStateFailed
+		job.err = err
+		return "", err
+	}
+
+	job.state = jobStateSucceeded
+	job.path = cachePath
+	return cachePath, nil
+}
+
 // GetThumbnail returns the path to the cached thumbnail, generating it if needed
 func (m *Manager) GetThumbnail(relPath string) (string, error) {
 	fullPath := filepath.Join(m.cfg.RootDir, filepath.FromSlash(strings.TrimPrefix(relPath, "/")))
@@ -86,55 +169,24 @@ func (m *Manager) GetThumbnail(relPath string) (string, error) {
 	cacheKey := m.hashKey(relPath, fi.ModTime(), fi.Size(), "thumb")
 	cachePath := filepath.Join(m.thumbDir, cacheKey+".jpg")
 
-	if _, err := os.Stat(cachePath); err == nil {
-		return cachePath, nil
-	}
-
-	// In-flight deduplication
-	val, _ := m.inFlight.LoadOrStore(cacheKey, &sync.Mutex{})
-	mtx := val.(*sync.Mutex)
-	mtx.Lock()
-	defer mtx.Unlock()
-	defer m.inFlight.Delete(cacheKey)
-
-	// Check again in case another goroutine just finished it
-	if _, err := os.Stat(cachePath); err == nil {
-		return cachePath, nil
-	}
-
-	m.sem <- struct{}{}
-	defer func() { <-m.sem }()
-
-	category, _, ext := util.DetectCategory(fi.Name(), fi.IsDir())
-	tmpPath := cachePath + ".tmp.jpg"
-
-	switch category {
-	case util.CatImage:
-		err = m.generateImageThumb(fullPath, tmpPath)
-	case util.CatVideo:
-		err = m.generateVideoThumb(fullPath, tmpPath)
-	case util.CatAudio:
-		err = m.generateAudioThumb(fullPath, tmpPath)
-	case util.CatDocument:
-		if ext == ".pdf" && m.hasPoppler {
-			err = m.generatePdfThumb(fullPath, tmpPath)
-		} else {
-			err = fmt.Errorf("unsupported document thumbnail")
+	return m.runSingleFlight(cacheKey, cachePath, func(tmpPath string) error {
+		category, _, ext := util.DetectCategory(fi.Name(), fi.IsDir())
+		switch category {
+		case util.CatImage:
+			return m.generateImageThumb(fullPath, tmpPath)
+		case util.CatVideo:
+			return m.generateVideoThumb(fullPath, tmpPath)
+		case util.CatAudio:
+			return m.generateAudioThumb(fullPath, tmpPath)
+		case util.CatDocument:
+			if ext == ".pdf" && m.hasPoppler {
+				return m.generatePdfThumb(fullPath, tmpPath)
+			}
+			return fmt.Errorf("unsupported document thumbnail")
+		default:
+			return fmt.Errorf("unsupported category for thumbnail: %s", category)
 		}
-	default:
-		err = fmt.Errorf("unsupported category for thumbnail: %s", category)
-	}
-
-	if err != nil {
-		_ = os.Remove(tmpPath)
-		return "", err
-	}
-
-	if err := os.Rename(tmpPath, cachePath); err != nil {
-		return "", err
-	}
-
-	return cachePath, nil
+	})
 }
 
 // GetVideoScrub returns the path to an animated webp preview for videos
@@ -152,50 +204,28 @@ func (m *Manager) GetVideoScrub(relPath string) (string, error) {
 	cacheKey := m.hashKey(relPath, fi.ModTime(), fi.Size(), "scrub")
 	cachePath := filepath.Join(m.thumbDir, cacheKey+".webp")
 
-	if _, err := os.Stat(cachePath); err == nil {
-		return cachePath, nil
-	}
+	return m.runSingleFlight(cacheKey, cachePath, func(tmpPath string) error {
+		// Extract 2.5 seconds clip starting at 2s, scale to 320px width, 8 fps
+		cmd := exec.Command("ffmpeg",
+			"-hide_banner",
+			"-loglevel", "error",
+			"-threads", "2",
+			"-y",
+			"-ss", "00:00:02",
+			"-t", "2.5",
+			"-i", fullPath,
+			"-an",
+			"-vf", "fps=8,scale=320:-1:flags=lanczos",
+			"-loop", "0",
+			"-quality", "65",
+			tmpPath,
+		)
 
-	val, _ := m.inFlight.LoadOrStore(cacheKey, &sync.Mutex{})
-	mtx := val.(*sync.Mutex)
-	mtx.Lock()
-	defer mtx.Unlock()
-	defer m.inFlight.Delete(cacheKey)
-
-	if _, err := os.Stat(cachePath); err == nil {
-		return cachePath, nil
-	}
-
-	m.sem <- struct{}{}
-	defer func() { <-m.sem }()
-
-	tmpPath := cachePath + ".tmp.webp"
-	// Extract 2.5 seconds clip starting at 2s, scale to 320px width, 8 fps
-	cmd := exec.Command("ffmpeg",
-		"-hide_banner",
-		"-loglevel", "error",
-		"-threads", "2",
-		"-y",
-		"-ss", "00:00:02",
-		"-t", "2.5",
-		"-i", fullPath,
-		"-an",
-		"-vf", "fps=8,scale=320:-1:flags=lanczos",
-		"-loop", "0",
-		"-quality", "65",
-		tmpPath,
-	)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("ffmpeg scrub error: %v, output: %s", err, string(out))
-	}
-
-	if err := os.Rename(tmpPath, cachePath); err != nil {
-		return "", err
-	}
-
-	return cachePath, nil
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("ffmpeg scrub error: %v, output: %s", err, string(out))
+		}
+		return nil
+	})
 }
 
 func (m *Manager) generateImageThumb(src, dst string) error {
@@ -269,12 +299,12 @@ func (m *Manager) generateAudioThumb(src, dst string) error {
 
 	metadata, err := tag.ReadFrom(f)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrNoCoverArt, err)
 	}
 
 	pic := metadata.Picture()
 	if pic == nil || len(pic.Data) == 0 {
-		return fmt.Errorf("no embedded album art")
+		return ErrNoCoverArt
 	}
 
 	img, _, err := image.Decode(strings.NewReader(string(pic.Data)))
@@ -381,61 +411,32 @@ func (m *Manager) getDirectoryThumbnail(relPath, fullPath string, fi os.FileInfo
 	cacheKey := m.hashKey(relPath, fi.ModTime(), fi.Size(), "thumb-dir")
 	cachePath := filepath.Join(m.thumbDir, cacheKey+".jpg")
 
-	if _, err := os.Stat(cachePath); err == nil {
-		return cachePath, nil
-	}
-
-	targetFile := m.findDirectoryCover(fullPath, 2)
-	if targetFile == "" {
-		return "", fmt.Errorf("no thumbnailable files in directory %s", relPath)
-	}
-
-	// In-flight deduplication
-	val, _ := m.inFlight.LoadOrStore(cacheKey, &sync.Mutex{})
-	mtx := val.(*sync.Mutex)
-	mtx.Lock()
-	defer mtx.Unlock()
-	defer m.inFlight.Delete(cacheKey)
-
-	if _, err := os.Stat(cachePath); err == nil {
-		return cachePath, nil
-	}
-
-	m.sem <- struct{}{}
-	defer func() { <-m.sem }()
-
-	tmpPath := cachePath + ".tmp.jpg"
-	tFi, err := os.Stat(targetFile)
-	if err != nil {
-		return "", err
-	}
-
-	cat, _, ext := util.DetectCategory(tFi.Name(), false)
-	switch cat {
-	case util.CatImage:
-		err = m.generateImageThumb(targetFile, tmpPath)
-	case util.CatVideo:
-		err = m.generateVideoThumb(targetFile, tmpPath)
-	case util.CatAudio:
-		err = m.generateAudioThumb(targetFile, tmpPath)
-	case util.CatDocument:
-		if ext == ".pdf" && m.hasPoppler {
-			err = m.generatePdfThumb(targetFile, tmpPath)
-		} else {
-			err = fmt.Errorf("unsupported doc")
+	return m.runSingleFlight(cacheKey, cachePath, func(tmpPath string) error {
+		targetFile := m.findDirectoryCover(fullPath, 2)
+		if targetFile == "" {
+			return ErrNoCoverArt
 		}
-	default:
-		err = fmt.Errorf("unsupported thumb target: %s", targetFile)
-	}
 
-	if err != nil {
-		_ = os.Remove(tmpPath)
-		return "", err
-	}
+		tFi, err := os.Stat(targetFile)
+		if err != nil {
+			return err
+		}
 
-	if err := os.Rename(tmpPath, cachePath); err != nil {
-		return "", err
-	}
-
-	return cachePath, nil
+		cat, _, ext := util.DetectCategory(tFi.Name(), false)
+		switch cat {
+		case util.CatImage:
+			return m.generateImageThumb(targetFile, tmpPath)
+		case util.CatVideo:
+			return m.generateVideoThumb(targetFile, tmpPath)
+		case util.CatAudio:
+			return m.generateAudioThumb(targetFile, tmpPath)
+		case util.CatDocument:
+			if ext == ".pdf" && m.hasPoppler {
+				return m.generatePdfThumb(targetFile, tmpPath)
+			}
+			return fmt.Errorf("unsupported doc")
+		default:
+			return fmt.Errorf("unsupported thumb target: %s", targetFile)
+		}
+	})
 }

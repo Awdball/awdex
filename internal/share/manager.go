@@ -24,6 +24,26 @@ import (
 	"github.com/awdball/awdex/internal/config"
 )
 
+// TunnelState represents the explicit state of the outbound share tunnel engine.
+type TunnelState string
+
+const (
+	TunnelStateIdle     TunnelState = "idle"
+	TunnelStateStarting TunnelState = "starting"
+	TunnelStateOnline   TunnelState = "online"
+	TunnelStateError    TunnelState = "error"
+	TunnelStateStopping TunnelState = "stopping"
+)
+
+// ShareState represents the explicit lifecycle state of a share link.
+type ShareState string
+
+const (
+	ShareStateActive    ShareState = "active"
+	ShareStateExpired   ShareState = "expired"
+	ShareStateExhausted ShareState = "exhausted"
+)
+
 type ShareLink struct {
 	ID           string     `json:"id"`
 	Path         string     `json:"path"`
@@ -39,6 +59,17 @@ type ShareLink struct {
 	HasPassword  bool       `json:"has_password"`
 	Provider     string     `json:"provider"`
 	PublicURL    string     `json:"public_url"`
+	State        ShareState `json:"state,omitempty"`
+}
+
+func (s *ShareLink) EvaluateState(now time.Time) ShareState {
+	if s.ExpiresAt != nil && now.After(*s.ExpiresAt) {
+		return ShareStateExpired
+	}
+	if s.MaxDownloads > 0 && s.Downloads >= s.MaxDownloads {
+		return ShareStateExhausted
+	}
+	return ShareStateActive
 }
 
 type TunnelSettings struct {
@@ -49,31 +80,36 @@ type TunnelSettings struct {
 }
 
 type TunnelStatus struct {
-	Running       bool   `json:"running"`
-	Provider      string `json:"provider"`
-	PublicBaseURL string `json:"public_base_url"`
-	SharePort     int    `json:"share_port"`
-	Error         string `json:"error,omitempty"`
+	State         TunnelState `json:"state"`
+	Running       bool        `json:"running"`
+	Provider      string      `json:"provider"`
+	PublicBaseURL string      `json:"public_base_url"`
+	SharePort     int         `json:"share_port"`
+	StartedAt     *time.Time  `json:"started_at,omitempty"`
+	Error         string      `json:"error,omitempty"`
 }
 
 type persistedData struct {
-	Settings TunnelSettings       `json:"settings"`
+	Settings TunnelSettings        `json:"settings"`
 	Shares   map[string]*ShareLink `json:"shares"`
 }
 
 type Manager struct {
-	cfg        *config.Config
-	mu         sync.RWMutex
-	shares     map[string]*ShareLink
-	settings   TunnelSettings
-	storePath  string
+	cfg       *config.Config
+	mu        sync.RWMutex
+	shares    map[string]*ShareLink
+	settings  TunnelSettings
+	storePath string
 
-	tunnelMu     sync.Mutex
-	tunnelCmd    *exec.Cmd
-	tunnelCancel context.CancelFunc
-	tunnelURL    string
-	tunnelErr    string
-	tunnelProv   string
+	tunnelMu        sync.Mutex
+	tunnelState     TunnelState
+	tunnelGen       uint64
+	tunnelStartedAt *time.Time
+	tunnelCmd       *exec.Cmd
+	tunnelCancel    context.CancelFunc
+	tunnelURL       string
+	tunnelErr       string
+	tunnelProv      string
 }
 
 var (
@@ -83,9 +119,10 @@ var (
 
 func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
-		cfg:       cfg,
-		shares:    make(map[string]*ShareLink),
-		storePath: filepath.Join(cfg.DataDir, "shares.json"),
+		cfg:         cfg,
+		shares:      make(map[string]*ShareLink),
+		storePath:   filepath.Join(cfg.DataDir, "shares.json"),
+		tunnelState: TunnelStateIdle,
 		settings: TunnelSettings{
 			Provider:      cfg.ShareProvider,
 			PublicBaseURL: cfg.SharePublicURL,
@@ -149,10 +186,7 @@ func (m *Manager) PruneExpired() {
 	now := time.Now()
 	changed := false
 	for id, s := range m.shares {
-		if s.ExpiresAt != nil && now.After(*s.ExpiresAt) {
-			delete(m.shares, id)
-			changed = true
-		} else if s.MaxDownloads > 0 && s.Downloads >= s.MaxDownloads {
+		if s.EvaluateState(now) != ShareStateActive {
 			delete(m.shares, id)
 			changed = true
 		}
@@ -192,6 +226,7 @@ func (m *Manager) UpdateSettings(prov, publicBaseURL, zrokToken string) TunnelSe
 	if prov != "" {
 		m.settings.Provider = prov
 	}
+	newProv := m.settings.Provider
 	m.settings.PublicBaseURL = strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
 	if zrokToken != "" {
 		m.settings.ZrokToken = strings.TrimSpace(zrokToken)
@@ -202,7 +237,7 @@ func (m *Manager) UpdateSettings(prov, publicBaseURL, zrokToken string) TunnelSe
 	res.ZrokToken = ""
 	m.mu.Unlock()
 
-	if oldProv != prov {
+	if oldProv != newProv {
 		m.StopTunnel()
 	}
 	return res
@@ -243,6 +278,7 @@ func (m *Manager) CreateShare(relPath, name string, isDir bool, size int64, cate
 		PasswordHash: pwHash,
 		HasPassword:  pwHash != "",
 		Provider:     prov,
+		State:        ShareStateActive,
 	}
 	if baseURL != "" {
 		link.PublicURL = strings.TrimRight(baseURL, "/") + "/s/" + token
@@ -286,10 +322,12 @@ func (m *Manager) ListShares() []*ShareLink {
 		activeBase = m.settings.PublicBaseURL
 	}
 
+	now := time.Now()
 	list := make([]*ShareLink, 0, len(m.shares))
 	for _, s := range m.shares {
 		cp := *s
 		cp.PasswordHash = ""
+		cp.State = cp.EvaluateState(now)
 		if activeBase != "" {
 			cp.PublicURL = strings.TrimRight(activeBase, "/") + "/s/" + cp.ID
 		}
@@ -309,17 +347,46 @@ func (m *Manager) GetShare(id string) (*ShareLink, bool) {
 	if !ok {
 		return nil, false
 	}
+	now := time.Now()
+	if s.EvaluateState(now) != ShareStateActive {
+		return nil, false
+	}
 	cp := *s
+	cp.State = ShareStateActive
+	return &cp, true
+}
+
+// ClaimDownload atomically verifies that the share is still active and within its download limit,
+// increments the download counter, and persists the updated state.
+func (m *Manager) ClaimDownload(id string) (*ShareLink, bool) {
+	m.mu.Lock()
+	s, ok := m.shares[id]
+	if !ok {
+		m.mu.Unlock()
+		return nil, false
+	}
+	now := time.Now()
+	if s.EvaluateState(now) != ShareStateActive {
+		delete(m.shares, id)
+		rem := len(m.shares)
+		m.saveLocked()
+		m.mu.Unlock()
+		if rem == 0 {
+			m.StopTunnel()
+		}
+		return nil, false
+	}
+
+	s.Downloads++
+	cp := *s
+	cp.State = s.EvaluateState(now)
+	m.saveLocked()
+	m.mu.Unlock()
 	return &cp, true
 }
 
 func (m *Manager) IncrementDownload(id string) {
-	m.mu.Lock()
-	if s, ok := m.shares[id]; ok {
-		s.Downloads++
-		m.saveLocked()
-	}
-	m.mu.Unlock()
+	_, _ = m.ClaimDownload(id)
 }
 
 func (m *Manager) Status() (TunnelStatus, TunnelSettings) {
@@ -332,16 +399,36 @@ func (m *Manager) Status() (TunnelStatus, TunnelSettings) {
 	m.tunnelMu.Lock()
 	defer m.tunnelMu.Unlock()
 
+	state := m.tunnelState
+	if state == "" {
+		state = TunnelStateIdle
+	}
+	running := state == TunnelStateOnline && m.tunnelCmd != nil && m.tunnelURL != ""
+
+	var startedAt *time.Time
+	if m.tunnelStartedAt != nil {
+		cp := *m.tunnelStartedAt
+		startedAt = &cp
+	}
+
 	st := TunnelStatus{
-		Running:       m.tunnelCmd != nil && m.tunnelURL != "",
+		State:         state,
+		Running:       running,
 		Provider:      settings.Provider,
 		PublicBaseURL: m.tunnelURL,
 		SharePort:     m.cfg.SharePort,
+		StartedAt:     startedAt,
 		Error:         m.tunnelErr,
 	}
 	if settings.Provider == "custom" {
 		st.PublicBaseURL = settings.PublicBaseURL
-		st.Running = settings.PublicBaseURL != ""
+		if settings.PublicBaseURL != "" {
+			st.State = TunnelStateOnline
+			st.Running = true
+		} else {
+			st.State = TunnelStateIdle
+			st.Running = false
+		}
 	}
 	return st, settings
 }
@@ -349,6 +436,9 @@ func (m *Manager) Status() (TunnelStatus, TunnelSettings) {
 func (m *Manager) StopTunnel() {
 	m.tunnelMu.Lock()
 	defer m.tunnelMu.Unlock()
+
+	m.tunnelState = TunnelStateStopping
+	m.tunnelGen++
 	if m.tunnelCancel != nil {
 		m.tunnelCancel()
 		m.tunnelCancel = nil
@@ -359,6 +449,33 @@ func (m *Manager) StopTunnel() {
 	m.tunnelCmd = nil
 	m.tunnelURL = ""
 	m.tunnelErr = ""
+	m.tunnelStartedAt = nil
+	m.tunnelState = TunnelStateIdle
+}
+
+// watchTunnelProcess reaps the child tunnel process and transitions state if it exits unexpectedly.
+func (m *Manager) watchTunnelProcess(cmd *exec.Cmd, gen uint64) {
+	err := cmd.Wait()
+
+	m.tunnelMu.Lock()
+	defer m.tunnelMu.Unlock()
+
+	if m.tunnelGen != gen {
+		// Process was intentionally stopped or replaced by a newer tunnel generation
+		return
+	}
+
+	m.tunnelCmd = nil
+	m.tunnelURL = ""
+	m.tunnelStartedAt = nil
+	if err != nil {
+		m.tunnelState = TunnelStateError
+		m.tunnelErr = fmt.Sprintf("tunnel process exited unexpectedly: %v", err)
+		log.Printf("[share] %s", m.tunnelErr)
+	} else {
+		m.tunnelState = TunnelStateIdle
+		m.tunnelErr = ""
+	}
 }
 
 func (m *Manager) EnsureTunnel() (string, error) {
@@ -378,31 +495,40 @@ func (m *Manager) EnsureTunnel() (string, error) {
 	m.tunnelMu.Lock()
 	defer m.tunnelMu.Unlock()
 
-	if m.tunnelCmd != nil && m.tunnelURL != "" && m.tunnelProv == prov {
-		// Check if process is still alive
+	if m.tunnelState == TunnelStateOnline && m.tunnelCmd != nil && m.tunnelURL != "" && m.tunnelProv == prov {
 		if m.tunnelCmd.ProcessState == nil {
 			return m.tunnelURL, nil
 		}
 	}
 
 	// Clean up any previous process
+	m.tunnelGen++
 	if m.tunnelCancel != nil {
 		m.tunnelCancel()
+		m.tunnelCancel = nil
 	}
+	if m.tunnelCmd != nil && m.tunnelCmd.Process != nil {
+		_ = m.tunnelCmd.Process.Kill()
+	}
+	m.tunnelCmd = nil
 	m.tunnelURL = ""
 	m.tunnelErr = ""
+	m.tunnelStartedAt = nil
 	m.tunnelProv = prov
+	m.tunnelState = TunnelStateStarting
 
 	switch prov {
 	case "zrok":
 		url, err := m.startZrokLocked(zrokToken)
 		if err != nil {
+			m.tunnelState = TunnelStateError
 			m.tunnelErr = err.Error()
 		}
 		return url, err
 	default: // "cloudflared"
 		url, err := m.startCloudflaredLocked()
 		if err != nil {
+			m.tunnelState = TunnelStateError
 			m.tunnelErr = err.Error()
 		}
 		return url, err
@@ -475,7 +601,9 @@ func (m *Manager) startCloudflaredLocked() (string, error) {
 	}
 
 	urlCh := make(chan string, 1)
+	eofCh := make(chan struct{})
 	go func() {
+		defer close(eofCh)
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -490,14 +618,25 @@ func (m *Manager) startCloudflaredLocked() (string, error) {
 
 	select {
 	case pubURL := <-urlCh:
+		m.tunnelGen++
+		gen := m.tunnelGen
+		now := time.Now()
 		m.tunnelCmd = cmd
 		m.tunnelCancel = cancel
 		m.tunnelURL = pubURL
+		m.tunnelStartedAt = &now
+		m.tunnelState = TunnelStateOnline
+		go m.watchTunnelProcess(cmd, gen)
 		log.Printf("[share] cloudflared quick tunnel active: %s -> %s", pubURL, target)
 		return pubURL, nil
+	case <-eofCh:
+		cancel()
+		_ = cmd.Wait()
+		return "", fmt.Errorf("cloudflared exited before publishing a quick tunnel URL")
 	case <-time.After(18 * time.Second):
 		cancel()
 		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return "", fmt.Errorf("timed out waiting for cloudflared quick tunnel URL")
 	}
 }
@@ -540,7 +679,13 @@ func (m *Manager) startZrokLocked(token string) (string, error) {
 	}
 
 	urlCh := make(chan string, 1)
+	var pipeWg sync.WaitGroup
+	pipeWg.Add(2)
 	scanPipe := func(r io.Reader) {
+		defer pipeWg.Done()
+		if r == nil {
+			return
+		}
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -555,16 +700,33 @@ func (m *Manager) startZrokLocked(token string) (string, error) {
 	go scanPipe(stdout)
 	go scanPipe(stderr)
 
+	eofCh := make(chan struct{})
+	go func() {
+		pipeWg.Wait()
+		close(eofCh)
+	}()
+
 	select {
 	case pubURL := <-urlCh:
+		m.tunnelGen++
+		gen := m.tunnelGen
+		now := time.Now()
 		m.tunnelCmd = cmd
 		m.tunnelCancel = cancel
 		m.tunnelURL = pubURL
+		m.tunnelStartedAt = &now
+		m.tunnelState = TunnelStateOnline
+		go m.watchTunnelProcess(cmd, gen)
 		log.Printf("[share] zrok tunnel active: %s -> %s", pubURL, target)
 		return pubURL, nil
+	case <-eofCh:
+		cancel()
+		_ = cmd.Wait()
+		return "", fmt.Errorf("zrok exited before publishing a public share URL")
 	case <-time.After(18 * time.Second):
 		cancel()
 		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return "", fmt.Errorf("timed out waiting for zrok public share URL")
 	}
 }

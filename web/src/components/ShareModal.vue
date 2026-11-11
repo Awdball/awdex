@@ -1,5 +1,12 @@
 <template>
-  <dialog ref="dialogRef" class="share-dialog animate-fade-in" @close="$emit('close')" @click="onDialogClick">
+  <dialog
+    ref="dialogRef"
+    class="share-dialog animate-fade-in"
+    :data-tunnel-state="tunnel.state || (tunnel.running ? 'online' : 'idle')"
+    :data-active-tab="activeTab"
+    @close="$emit('close')"
+    @click="onDialogClick"
+  >
     <div class="share-modal-inner" @click.stop>
       <div class="modal-header">
         <div class="header-title-row">
@@ -34,7 +41,14 @@
           @click="activeTab = 'tunnel'"
         >
           Tunnel Engine
-          <span class="tunnel-dot" :class="tunnel.running ? 'is-online' : 'is-idle'"></span>
+          <span
+            class="tunnel-dot"
+            :class="{
+              'is-online': tunnel.running,
+              'is-error': tunnel.state === 'error',
+              'is-idle': !tunnel.running && tunnel.state !== 'error'
+            }"
+          ></span>
         </button>
       </div>
 
@@ -119,15 +133,38 @@
 
       <!-- TAB 2: ACTIVE SHARES -->
       <div v-else-if="activeTab === 'manage'" class="modal-body">
-        <div class="tunnel-status-strip" :class="{ 'is-running': tunnel.running }">
+        <div class="tunnel-status-strip" :class="{ 'is-running': tunnel.running, 'is-error': tunnel.state === 'error' }">
           <div class="strip-left">
-            <span class="tunnel-dot" :class="tunnel.running ? 'is-online' : 'is-idle'"></span>
+            <span
+              class="tunnel-dot"
+              :class="{
+                'is-online': tunnel.running,
+                'is-error': tunnel.state === 'error',
+                'is-idle': !tunnel.running && tunnel.state !== 'error'
+              }"
+            ></span>
             <div>
               <div class="strip-title">
-                {{ tunnel.running ? `Outbound Tunnel Active (${providerLabel(tunnel.provider)})` : `Tunnel Idle (${providerLabel(settings.provider)})` }}
+                <template v-if="tunnel.running">
+                  Outbound Tunnel Active ({{ providerLabel(tunnel.provider) }})
+                </template>
+                <template v-else-if="tunnel.state === 'error'">
+                  Tunnel Error ({{ providerLabel(settings.provider) }})
+                </template>
+                <template v-else>
+                  Tunnel Idle ({{ providerLabel(settings.provider) }})
+                </template>
               </div>
               <div class="strip-sub">
-                {{ tunnel.running ? tunnel.public_base_url : 'Spins up automatically when a share is active; closes when empty.' }}
+                <template v-if="tunnel.running">
+                  {{ tunnel.public_base_url }}
+                </template>
+                <template v-else-if="tunnel.last_error">
+                  {{ tunnel.last_error }}
+                </template>
+                <template v-else>
+                  Spins up automatically when a share is active; closes when empty.
+                </template>
               </div>
             </div>
           </div>
@@ -145,7 +182,7 @@
         </div>
 
         <div v-else class="shares-list">
-          <div v-for="s in shares" :key="s.id" class="share-row-card">
+          <div v-for="s in shares" :key="s.id" class="share-row-card" :data-share-id="s.id" :data-share-state="s.state || 'active'">
             <div class="share-row-top">
               <div class="share-item-title">
                 <Lock v-if="s.has_password" :size="13" class="lock-icon" title="Password Protected" />
@@ -257,7 +294,7 @@ const emit = defineEmits(['close', 'updated'])
 const dialogRef = ref(null)
 const activeTab = ref(props.item ? 'create' : 'manage')
 const shares = ref([])
-const tunnel = ref({ running: false, provider: 'cloudflared', public_base_url: '', share_port: 8081 })
+const tunnel = ref({ state: 'idle', running: false, provider: 'cloudflared', public_base_url: '', share_port: 8081 })
 const settings = ref({ provider: 'cloudflared', public_base_url: '', has_zrok_token: false })
 
 const creating = ref(false)
@@ -509,6 +546,7 @@ dialog.share-dialog::backdrop {
   display: inline-block;
 }
 .tunnel-dot.is-online { background-color: #10b981; box-shadow: 0 0 6px #10b981; }
+.tunnel-dot.is-error { background-color: #ef4444; box-shadow: 0 0 6px #ef4444; }
 .tunnel-dot.is-idle { background-color: var(--text-subtle); }
 
 .modal-body {

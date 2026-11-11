@@ -98,7 +98,7 @@ func (s *sqliteDB) UpsertBatch(ctx context.Context, items []*model.FileItem) err
 	}
 	defer stmt.Close()
 
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	for _, it := range items {
 		isDir := 0
 		if it.IsDir {
@@ -138,6 +138,15 @@ func (s *sqliteDB) DeleteDirPrefix(ctx context.Context, dirPath string) error {
 	prefix := strings.TrimSuffix(dirPath, "/") + "/%"
 	_, err := s.db.ExecContext(ctx, "DELETE FROM files WHERE path = ? OR path LIKE ?", dirPath, prefix)
 	return err
+}
+
+func (s *sqliteDB) PruneStale(ctx context.Context, beforeUnixMilli int64) (int64, error) {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM files WHERE indexed_at < ?", beforeUnixMilli)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (s *sqliteDB) Search(ctx context.Context, req model.SearchRequest) ([]*model.FileItem, int64, error) {

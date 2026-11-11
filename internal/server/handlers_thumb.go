@@ -1,9 +1,11 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"os"
 
+	"github.com/awdball/awdex/internal/thumb"
 	"github.com/awdball/awdex/internal/util"
 )
 
@@ -16,6 +18,10 @@ func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request) {
 
 	thumbPath, err := s.thumbs.GetThumbnail(relPath)
 	if err != nil {
+		if errors.Is(err, thumb.ErrNoCoverArt) || os.IsNotExist(err) {
+			http.Error(w, "No thumbnail available", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "Failed to generate thumbnail: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -47,6 +53,10 @@ func (s *Server) handleScrub(w http.ResponseWriter, r *http.Request) {
 
 	scrubPath, err := s.thumbs.GetVideoScrub(relPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Video not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "Failed to generate video scrub: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

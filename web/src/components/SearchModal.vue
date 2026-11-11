@@ -1,6 +1,10 @@
 <template>
   <div class="modal-backdrop" @click.self="$emit('close')">
-    <div class="search-modal animate-fade-in">
+    <div
+      class="search-modal animate-fade-in"
+      :data-search-state="searchState"
+      :data-result-count="results.length"
+    >
       <!-- Search Input Bar -->
       <div class="search-input-header">
         <Search :size="18" class="search-icon" />
@@ -12,6 +16,9 @@
           class="search-main-input"
           @input="onSearchInput"
           @keydown.esc="$emit('close')"
+          @keydown.down.prevent="moveSelection(1)"
+          @keydown.up.prevent="moveSelection(-1)"
+          @keydown.enter.prevent="activateSelection"
         />
         <button class="search-close-btn" @click="$emit('close')">
           <X :size="18" />
@@ -33,19 +40,25 @@
 
       <!-- Results List -->
       <div class="search-results">
-        <div v-if="loading" class="search-status">Searching index...</div>
-        <div v-else-if="!query && results.length === 0" class="search-status">
+        <div v-if="searchState === SEARCH_STATES.SEARCHING" class="search-status">Searching index...</div>
+        <div v-else-if="searchState === SEARCH_STATES.ERROR" class="search-status search-error">
+          Search failed: {{ searchError }}
+        </div>
+        <div v-else-if="searchState === SEARCH_STATES.IDLE" class="search-status">
           Type to search files by name, path, or extension
         </div>
-        <div v-else-if="query && results.length === 0" class="search-status">
-          No matches found for "{{ query }}"
+        <div v-else-if="searchState === SEARCH_STATES.EMPTY" class="search-status">
+          No matches found for "{{ query || selectedCategory }}"
         </div>
 
         <div v-else class="results-list">
           <div 
-            v-for="item in results" 
+            v-for="(item, idx) in results" 
             :key="item.path" 
             class="result-row"
+            :class="{ 'is-selected': idx === selectedIndex }"
+            :data-result-path="item.path"
+            @mouseenter="selectedIndex = idx"
             @click="onSelectResult(item)"
           >
             <div class="result-thumb-box">
@@ -71,10 +84,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { Search, X, Folder, File } from '@lucide/vue'
 import { fetchSearch } from '../utils/api.js'
 import { formatBytes } from '../utils/formatters.js'
+import { SEARCH_STATES } from '../utils/stateMachines.js'
 
 const emit = defineEmits(['close', 'select-item', 'navigate'])
 
@@ -82,8 +96,13 @@ const searchInputRef = ref(null)
 const query = ref('')
 const selectedCategory = ref('')
 const results = ref([])
-const loading = ref(false)
+const searchState = ref(SEARCH_STATES.IDLE)
+const searchError = ref('')
+const selectedIndex = ref(-1)
+
 let debounceTimer = null
+let activeAbort = null
+let searchSeq = 0
 
 const categories = [
   { id: '', label: 'All' },
@@ -104,23 +123,66 @@ function onSearchInput() {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     performSearch()
-  }, 200)
+  }, 180)
 }
 
 async function performSearch() {
+  if (activeAbort) {
+    activeAbort.abort()
+    activeAbort = null
+  }
+
   if (!query.value.trim() && !selectedCategory.value) {
     results.value = []
+    selectedIndex.value = -1
+    searchError.value = ''
+    searchState.value = SEARCH_STATES.IDLE
     return
   }
 
-  loading.value = true
+  const seq = ++searchSeq
+  const controller = new AbortController()
+  activeAbort = controller
+
+  searchState.value = SEARCH_STATES.SEARCHING
+  searchError.value = ''
+
   try {
-    const data = await fetchSearch(query.value, selectedCategory.value, '/', 50, 0)
-    results.value = data.items || []
+    const data = await fetchSearch(query.value, selectedCategory.value, '/', 50, 0, {
+      signal: controller.signal
+    })
+    if (seq !== searchSeq) return
+    const items = data.items || []
+    results.value = items
+    selectedIndex.value = items.length > 0 ? 0 : -1
+    searchState.value = items.length > 0 ? SEARCH_STATES.RESULTS : SEARCH_STATES.EMPTY
   } catch (err) {
+    if (err?.name === 'AbortError' || seq !== searchSeq) return
     console.error('Search failed:', err)
+    searchError.value = err.message || 'Failed to query index'
+    searchState.value = SEARCH_STATES.ERROR
   } finally {
-    loading.value = false
+    if (activeAbort === controller) {
+      activeAbort = null
+    }
+  }
+}
+
+function moveSelection(delta) {
+  if (results.value.length === 0) return
+  const next = selectedIndex.value + delta
+  if (next < 0) {
+    selectedIndex.value = results.value.length - 1
+  } else if (next >= results.value.length) {
+    selectedIndex.value = 0
+  } else {
+    selectedIndex.value = next
+  }
+}
+
+function activateSelection() {
+  if (selectedIndex.value >= 0 && selectedIndex.value < results.value.length) {
+    onSelectResult(results.value[selectedIndex.value])
   }
 }
 
@@ -136,6 +198,13 @@ function onSelectResult(item) {
 
 onMounted(() => {
   searchInputRef.value?.focus()
+})
+
+onUnmounted(() => {
+  clearTimeout(debounceTimer)
+  if (activeAbort) {
+    activeAbort.abort()
+  }
 })
 </script>
 
@@ -240,6 +309,10 @@ onMounted(() => {
   color: var(--text-subtle);
 }
 
+.search-error {
+  color: #ef4444;
+}
+
 .results-list {
   display: flex;
   flex-direction: column;
@@ -254,7 +327,8 @@ onMounted(() => {
   transition: background-color 0.12s;
 }
 
-.result-row:hover {
+.result-row:hover,
+.result-row.is-selected {
   background-color: var(--bg-surface-hover);
 }
 

@@ -14,6 +14,7 @@ type DB interface {
 	UpsertBatch(ctx context.Context, items []*model.FileItem) error
 	DeletePath(ctx context.Context, relPath string) error
 	DeleteDirPrefix(ctx context.Context, dirPath string) error
+	PruneStale(ctx context.Context, beforeUnixMilli int64) (int64, error)
 	Search(ctx context.Context, req model.SearchRequest) ([]*model.FileItem, int64, error)
 	GetStats(ctx context.Context) (int64, int64, int64, error)
 	Type() string
